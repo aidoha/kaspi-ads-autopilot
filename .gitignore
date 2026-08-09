@@ -1,0 +1,15 @@
+# Креды — НИКОГДА в репозиторий
+.env
+config/.env
+storage_state.json
+*.session
+
+# База и кэш
+*.db
+db/*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
