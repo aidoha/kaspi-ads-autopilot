@@ -45,12 +45,13 @@ def only(decisions):
 # ============ БЫСТРЫЙ КОНТУР (только тормозит) ============
 
 def test_fast_spend_cap_pauses():
-    d = only(evaluate_fast([sr(cost_today=3500)], CFG))
+    d = only(evaluate_fast([sr(cost_today=3500, bid=18)], CFG))
     assert d.action == "pause"
     assert d.loop == "fast"
     assert d.changed is True
+    assert d.new_bid == CFG.min_bid       # пауза = ставка в пол (нет эндпоинта паузы)
     assert "лимит" in d.reason.lower() or "cost" in d.reason.lower()
-    print("✓ fast: costToday > дневного лимита → пауза")
+    print("✓ fast: costToday > дневного лимита → пауза (ставка в пол)")
 
 
 def test_fast_zero_carts_cut_only_above_volume():

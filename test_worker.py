@@ -97,16 +97,16 @@ def test_live_run_sends_put_with_new_bid():
     print("✓ worker: боевой режим шлёт PUT с новой ставкой")
 
 
-def test_fast_pause_does_not_put():
-    # costToday выше лимита → pause; эндпоинта паузы нет → PUT не шлём, но логируем
+def test_fast_pause_cuts_bid_to_min():
+    # costToday выше лимита → pause; маппим в минимальную ставку и шлём PUT
     st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
-    fm = FakeMarketing([cp(cost_today=9999)], dry_run=False)
+    fm = FakeMarketing([cp(cost_today=9999, bid=18)], dry_run=False)
     decisions = run_tick(ctx(fm, st, dry_run=False), loop="fast")
 
     assert decisions[0].action == "pause"
-    assert fm.puts == [], "pause не имеет PUT-эндпоинта"
-    assert st.count_changes_today("SKU1", DAY) == 1, "pause всё равно в логе"
-    print("✓ worker: fast pause логируется, но PUT не шлёт")
+    assert fm.puts == [(["SKU1"], RulesConfig().min_bid)], "pause режет ставку в пол"
+    assert st.count_changes_today("SKU1", DAY) == 1, "pause в логе"
+    print("✓ worker: fast pause → PUT минимальной ставки")
 
 
 def test_revenue_cycle_fills_cache():
@@ -125,7 +125,7 @@ def test_revenue_cycle_fills_cache():
 if __name__ == "__main__":
     test_dry_run_logs_but_no_put()
     test_live_run_sends_put_with_new_bid()
-    test_fast_pause_does_not_put()
+    test_fast_pause_cuts_bid_to_min()
     test_revenue_cycle_fills_cache()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

@@ -101,13 +101,14 @@ def run_tick(ctx: WorkerContext, loop: str):
 
 def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int):
     """
-    Шлём ставочные изменения (raise/lower) батчами по значению ставки.
-    pause эндпоинта пока не имеет — только логируем (см. TODO в marketing_client).
+    Шлём ставочные изменения батчами по значению ставки. pause отдельного
+    эндпоинта не имеет — его решение уже несёт new_bid = min_bid (ставка в пол),
+    поэтому применяется тем же update_bids, что raise/lower.
     Каждое решение (включая hold) идёт в аудит-лог.
     """
     by_bid: dict[float, list[str]] = defaultdict(list)
     for d in decisions:
-        if d.action in ("raise", "lower"):
+        if d.action in ("raise", "lower", "pause"):
             by_bid[d.new_bid].append(d.sku)
 
     sent_skus: dict[str, bool] = {}

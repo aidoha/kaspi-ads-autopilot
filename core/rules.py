@@ -109,9 +109,11 @@ def _eval_fast_one(s, cfg: RulesConfig, st: DailyState) -> Decision:
         return _hold(s, "fast", "товар не Active — ставку не трогаем")
 
     # Спенд-кап важнее лимита изменений: слив бюджета тормозим всегда.
+    # Эндпоинта «паузы» у кабинета нет — режем ставку в пол (min_bid), это и есть стоп.
     if s.cost_today >= cfg.daily_sku_cost_limit:
-        return Decision(s.sku, s.merchant_sku, s.bid, s.bid, "pause", "fast",
-                        f"costToday={s.cost_today} ≥ дневного лимита {cfg.daily_sku_cost_limit} → пауза")
+        return Decision(s.sku, s.merchant_sku, s.bid, cfg.min_bid, "pause", "fast",
+                        f"costToday={s.cost_today} ≥ дневного лимита {cfg.daily_sku_cost_limit} "
+                        f"→ пауза (ставка в пол {cfg.min_bid})")
 
     if st.changes_today >= cfg.max_changes_per_day:
         return _hold(s, "fast", f"исчерпан лимит изменений/сутки ({cfg.max_changes_per_day})")
