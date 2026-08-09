@@ -1,0 +1,24 @@
+# systemd-юнит для 24/7 работы автопилота на VPS.
+# Установка:
+#   sudo cp deploy/kaspi-autopilot.service /etc/systemd/system/
+#   отредактируй User/WorkingDirectory/ExecStart под свои пути
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kaspi-autopilot
+# Логи:  journalctl -u kaspi-autopilot -f
+
+[Unit]
+Description=Kaspi Ads Autopilot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaspi
+WorkingDirectory=/opt/kaspi-ads-autopilot
+EnvironmentFile=/opt/kaspi-ads-autopilot/config/.env
+ExecStart=/opt/kaspi-ads-autopilot/.venv/bin/python worker.py
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
