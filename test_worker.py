@@ -14,11 +14,11 @@ import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from connectors.marketing_client import CampaignProduct
+from connectors.marketing_client import CampaignProduct, Campaign
 from core.revenue import SkuRevenue
 from core.rules import RulesConfig
 from core.store import Store
-from worker import WorkerContext, run_tick, run_revenue_cycle
+from worker import WorkerContext, run_tick, run_revenue_cycle, run_cycle
 
 ALMATY = ZoneInfo("Asia/Almaty")
 NOW = lambda: datetime(2026, 8, 9, 14, 0, tzinfo=ALMATY)
@@ -36,13 +36,16 @@ def cp(**over):
 
 
 class FakeMarketing:
-    def __init__(self, products, dry_run):
+    def __init__(self, products, dry_run, campaigns=None):
         self._products = products
         self.dry_run = dry_run
+        self._campaigns = campaigns or []
         self.puts = []
+        self.ticked = []                 # campaign_id, по которым звали get_campaign_products
 
     def get_campaign_products(self, campaign_id, start, end):
         self.seen_dates = (start, end)
+        self.ticked.append(campaign_id)
         return self._products
 
     def update_bids(self, campaign_id, sku_list, bid):
@@ -50,6 +53,10 @@ class FakeMarketing:
         if sent:
             self.puts.append((list(sku_list), bid))
         return {"skuList": list(sku_list), "bid": bid, "dry_run": self.dry_run, "sent": sent}
+
+    def list_active_campaigns(self, start, end):
+        self.seen_campaign_dates = (start, end)
+        return list(self._campaigns)
 
 
 class FakeCollector:
@@ -122,10 +129,65 @@ def test_revenue_cycle_fills_cache():
     print("✓ worker: revenue-цикл наполняет кэш выручки")
 
 
+def _camps(*pairs):
+    return [Campaign(id=i, name=n, state="Enabled") for i, n in pairs]
+
+
+def test_run_cycle_ticks_every_active_campaign():
+    st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
+    fm = FakeMarketing([cp(bid=18)], dry_run=True,
+                       campaigns=_camps(("2899523", "Бритвы"), ("3032419", "Аэрогриль")))
+    decisions = run_cycle(ctx(fm, st, dry_run=True), loop="slow")
+    assert fm.ticked == ["2899523", "3032419"], fm.ticked
+    assert len(decisions) == 2                      # по одному решению на кампанию
+    print("✓ worker: run_cycle гоняет тик по каждой активной кампании")
+
+
+def test_run_cycle_allowlist_narrows():
+    st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
+    fm = FakeMarketing([cp(bid=18)], dry_run=True,
+                       campaigns=_camps(("2899523", "Бритвы"), ("3032419", "Аэрогриль")))
+    c = WorkerContext(marketing=fm, store=st, cfg=RulesConfig(dry_run=True),
+                      campaign_ids=["3032419"], now_fn=NOW)
+    run_cycle(c, loop="slow")
+    assert fm.ticked == ["3032419"], fm.ticked
+    print("✓ worker: run_cycle уважает allowlist campaign_ids")
+
+
+def test_run_cycle_isolates_failing_campaign():
+    st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
+
+    class BoomOnFirst(FakeMarketing):
+        def get_campaign_products(self, campaign_id, start, end):
+            if campaign_id == "BAD":
+                raise RuntimeError("кабинет отдал 500")
+            return super().get_campaign_products(campaign_id, start, end)
+
+    fm = BoomOnFirst([cp(bid=18)], dry_run=True,
+                     campaigns=_camps(("BAD", "Плохая"), ("2899523", "Бритвы")))
+    decisions = run_cycle(ctx(fm, st, dry_run=True), loop="slow")
+    # первая упала, вторая обработана
+    assert fm.ticked == ["2899523"], fm.ticked
+    assert len(decisions) == 1
+    print("✓ worker: run_cycle изолирует упавшую кампанию, остальные идут")
+
+
+def test_run_cycle_empty_is_noop():
+    st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
+    fm = FakeMarketing([cp(bid=18)], dry_run=True, campaigns=[])
+    decisions = run_cycle(ctx(fm, st, dry_run=True), loop="slow")
+    assert decisions == [] and fm.ticked == []
+    print("✓ worker: run_cycle с пустым списком — no-op")
+
+
 if __name__ == "__main__":
     test_dry_run_logs_but_no_put()
     test_live_run_sends_put_with_new_bid()
     test_fast_pause_cuts_bid_to_min()
     test_revenue_cycle_fills_cache()
+    test_run_cycle_ticks_every_active_campaign()
+    test_run_cycle_allowlist_narrows()
+    test_run_cycle_isolates_failing_campaign()
+    test_run_cycle_empty_is_noop()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

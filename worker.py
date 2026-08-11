@@ -99,6 +99,40 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str):
     return decisions
 
 
+def run_cycle(ctx: WorkerContext, loop: str):
+    """
+    Один цикл выбранного контура по ВСЕМ активным кампаниям: обнаруживает
+    Enabled-кампании (с учётом allowlist ctx.campaign_ids) и гоняет run_tick
+    по каждой. Изоляция: падение одной кампании логируется и не рушит остальные;
+    недоступный список кампаний → цикл пропускаем, планировщик жив.
+    """
+    now = ctx.now_fn()
+    start_date, end_date = _almaty_dates(ctx.window_days, now)
+    try:
+        campaigns = ctx.marketing.list_active_campaigns(start_date, end_date)
+    except Exception as e:
+        log.error("Список кампаний недоступен, цикл %s пропущен: %s", loop, e)
+        return []
+
+    allow = set(ctx.campaign_ids or [])
+    if allow:
+        campaigns = [c for c in campaigns if c.id in allow]
+
+    all_decisions: list = []
+    for c in campaigns:
+        try:
+            all_decisions.extend(run_tick(ctx, loop, c.id))
+        except Exception as e:
+            log.error("Кампания %s (%s) упала на контуре %s: %s",
+                      c.id, c.name, loop, e)
+            continue
+
+    log.info("Цикл %s: кампаний=%s, решений=%s, изменений=%s", loop,
+             len(campaigns), len(all_decisions),
+             sum(1 for d in all_decisions if d.changed))
+    return all_decisions
+
+
 def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int,
                    campaign_id: str):
     """
@@ -151,7 +185,8 @@ def main():  # pragma: no cover
 
     cfg = load_rules_config(os.environ.get("RULES_CONFIG", "config/rules.yaml"))
     merchant_id = os.environ["KASPI_MARKETING_MERCHANT_ID"]
-    campaign_id = os.environ["KASPI_CAMPAIGN_ID"]
+    ids_env = os.environ.get("KASPI_CAMPAIGN_IDS", "").strip()
+    campaign_ids = [c.strip() for c in ids_env.split(",") if c.strip()] or None
 
     store = Store(os.environ.get("DB_PATH", "db/autopilot.db"))
     session = SessionManager(
@@ -166,15 +201,16 @@ def main():  # pragma: no cover
         # Свежие куки на каждый цикл; при блокировке SessionManager сам поднимет алерт+стоп.
         cookies = session.get_cookies()
         marketing = MarketingClient(merchant_id, cookies=cookies, dry_run=cfg.dry_run)
-        return WorkerContext(marketing=marketing, store=store,
-                             cfg=cfg, revenue_collector=revenue_collector)
+        return WorkerContext(marketing=marketing, store=store, cfg=cfg,
+                             campaign_ids=campaign_ids,
+                             revenue_collector=revenue_collector)
 
     sched = BlockingScheduler(timezone="Asia/Almaty")
     sched.add_job(lambda: run_revenue_cycle(build_ctx()), "interval", minutes=60,
                   id="revenue")
-    sched.add_job(lambda: run_tick(build_ctx(), "fast", campaign_id), "interval", minutes=20,
+    sched.add_job(lambda: run_cycle(build_ctx(), "fast"), "interval", minutes=20,
                   id="fast")
-    sched.add_job(lambda: run_tick(build_ctx(), "slow", campaign_id), "cron", hour="10,20",
+    sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron", hour="10,20",
                   id="slow")
 
     def analyst_job():
@@ -185,8 +221,9 @@ def main():  # pragma: no cover
 
     sched.add_job(analyst_job, "cron", hour="22", id="analyst")
 
-    log.info("Автопилот запущен (dry_run=%s). Расписания: revenue/60м, fast/20м, "
-             "slow/10:00,20:00, analyst/22:00 (Алматы)", cfg.dry_run)
+    log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
+             "fast/20м, slow/10:00,20:00, analyst/22:00 (Алматы)",
+             cfg.dry_run, campaign_ids or "все активные")
     sched.start()
 
 
