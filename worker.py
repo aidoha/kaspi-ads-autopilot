@@ -141,6 +141,10 @@ def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int,
     поэтому применяется тем же update_bids, что raise/lower.
     Каждое решение (включая hold) идёт в аудит-лог.
     """
+    # TODO(live): PUT (update_bids) уходит в первом цикле, log_decision — только
+    # во втором; если в боевом режиме поздний PUT упадёт с исключением, ранние
+    # успешные PUT останутся без строки в аудит-логе (частичная запись).
+    # Сейчас не кусается: dry_run=true.
     by_bid: dict[float, list[str]] = defaultdict(list)
     for d in decisions:
         if d.action in ("raise", "lower", "pause"):

@@ -140,6 +140,8 @@ def test_run_cycle_ticks_every_active_campaign():
     decisions = run_cycle(ctx(fm, st, dry_run=True), loop="slow")
     assert fm.ticked == ["2899523", "3032419"], fm.ticked
     assert len(decisions) == 2                      # по одному решению на кампанию
+    logged = {r["campaign_id"] for r in st.get_decisions_for_day(DAY)}
+    assert logged == {"2899523", "3032419"}, logged
     print("✓ worker: run_cycle гоняет тик по каждой активной кампании")
 
 

@@ -193,7 +193,7 @@ class MarketingClient:
 
     def list_active_campaigns(
         self, start_date: str, end_date: str
-    ) -> list["Campaign"]:
+    ) -> list[Campaign]:
         """
         Список кампаний в статусе Enabled за окно [start_date, end_date]
         (YYYY-MM-DD). Ответ: {"data": [{"id", "name", "state"}, ...]}.
