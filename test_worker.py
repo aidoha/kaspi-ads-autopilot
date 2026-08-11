@@ -69,7 +69,7 @@ def store_with_revenue(rev):
 
 def ctx(marketing, store, dry_run):
     return WorkerContext(
-        marketing=marketing, store=store, campaign_id="2711494",
+        marketing=marketing, store=store,
         cfg=RulesConfig(dry_run=dry_run), now_fn=NOW,
     )
 
@@ -78,7 +78,7 @@ def test_dry_run_logs_but_no_put():
     # tacos = 100/5000 = 0.02 < 0.08 → slow raise, но dry_run → без PUT
     st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
     fm = FakeMarketing([cp(bid=18)], dry_run=True)
-    decisions = run_tick(ctx(fm, st, dry_run=True), loop="slow")
+    decisions = run_tick(ctx(fm, st, dry_run=True), loop="slow", campaign_id="2711494")
 
     assert len(decisions) == 1 and decisions[0].action == "raise"
     assert fm.puts == [], "dry_run НЕ должен слать PUT"
@@ -90,7 +90,7 @@ def test_dry_run_logs_but_no_put():
 def test_live_run_sends_put_with_new_bid():
     st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
     fm = FakeMarketing([cp(bid=18)], dry_run=False)
-    decisions = run_tick(ctx(fm, st, dry_run=False), loop="slow")
+    decisions = run_tick(ctx(fm, st, dry_run=False), loop="slow", campaign_id="2711494")
 
     assert decisions[0].action == "raise" and decisions[0].new_bid == 20
     assert fm.puts == [(["SKU1"], 20)], "боевой режим шлёт PUT с новой ставкой"
@@ -101,7 +101,7 @@ def test_fast_pause_cuts_bid_to_min():
     # costToday выше лимита → pause; маппим в минимальную ставку и шлём PUT
     st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
     fm = FakeMarketing([cp(cost_today=9999, bid=18)], dry_run=False)
-    decisions = run_tick(ctx(fm, st, dry_run=False), loop="fast")
+    decisions = run_tick(ctx(fm, st, dry_run=False), loop="fast", campaign_id="2711494")
 
     assert decisions[0].action == "pause"
     assert fm.puts == [(["SKU1"], RulesConfig().min_bid)], "pause режет ставку в пол"
@@ -113,7 +113,7 @@ def test_revenue_cycle_fills_cache():
     d = tempfile.mkdtemp()
     st = Store(os.path.join(d, "w.db"))
     collector = FakeCollector({"M1": SkuRevenue(merchant_sku="M1", revenue=77000, units=3)})
-    c = WorkerContext(marketing=None, store=st, campaign_id="x",
+    c = WorkerContext(marketing=None, store=st,
                       cfg=RulesConfig(), revenue_collector=collector, now_fn=NOW)
     run_revenue_cycle(c)
 

@@ -34,8 +34,8 @@ ALMATY = ZoneInfo("Asia/Almaty")
 class WorkerContext:
     marketing: object            # MarketingClient (несёт свой dry_run)
     store: object                # Store
-    campaign_id: str
     cfg: RulesConfig
+    campaign_ids: list[str] | None = None     # allowlist; None/пусто = все активные
     revenue_collector: object | None = None   # RevenueCollector (для revenue-цикла)
     window_days: int = 2
     now_fn: Callable[[], datetime] = field(default=lambda: datetime.now(ALMATY))
@@ -63,7 +63,7 @@ def run_revenue_cycle(ctx: WorkerContext):
 
 # ---- ставочный тик ---------------------------------------------------------
 
-def run_tick(ctx: WorkerContext, loop: str):
+def run_tick(ctx: WorkerContext, loop: str, campaign_id: str):
     """
     Один тик выбранного контура:
       read маркетинг → снапшот → выручка из кэша → reconcile → TACoS →
@@ -74,7 +74,7 @@ def run_tick(ctx: WorkerContext, loop: str):
     day = now.astimezone(ALMATY).date().isoformat()
     start_date, end_date = _almaty_dates(ctx.window_days, now)
 
-    products = ctx.marketing.get_campaign_products(ctx.campaign_id, start_date, end_date)
+    products = ctx.marketing.get_campaign_products(campaign_id, start_date, end_date)
 
     # Состояние берём ДО записи нового снапшота — так prev_avg_cpc = прошлый снимок.
     state = ctx.store.build_daily_state([p.sku for p in products], day)
@@ -93,13 +93,14 @@ def run_tick(ctx: WorkerContext, loop: str):
     else:
         raise ValueError(f"неизвестный контур: {loop}")
 
-    _apply_and_log(ctx, decisions, day, ts)
+    _apply_and_log(ctx, decisions, day, ts, campaign_id)
     log.info("Тик %s: решений=%s, изменений=%s", loop, len(decisions),
              sum(1 for d in decisions if d.changed))
     return decisions
 
 
-def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int):
+def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int,
+                   campaign_id: str):
     """
     Шлём ставочные изменения батчами по значению ставки. pause отдельного
     эндпоинта не имеет — его решение уже несёт new_bid = min_bid (ставка в пол),
@@ -113,13 +114,14 @@ def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int):
 
     sent_skus: dict[str, bool] = {}
     for bid, skus in by_bid.items():
-        result = ctx.marketing.update_bids(ctx.campaign_id, skus, bid)
+        result = ctx.marketing.update_bids(campaign_id, skus, bid)
         for sku in skus:
             sent_skus[sku] = bool(result.get("sent"))
 
     for d in decisions:
         applied = sent_skus.get(d.sku, False)
-        ctx.store.log_decision(d, ts=ts, day=day, applied=applied)
+        ctx.store.log_decision(d, ts=ts, day=day, applied=applied,
+                               campaign_id=campaign_id)
 
 
 # ---- боевая обвязка (тонкая, не под тестом) --------------------------------
@@ -164,15 +166,15 @@ def main():  # pragma: no cover
         # Свежие куки на каждый цикл; при блокировке SessionManager сам поднимет алерт+стоп.
         cookies = session.get_cookies()
         marketing = MarketingClient(merchant_id, cookies=cookies, dry_run=cfg.dry_run)
-        return WorkerContext(marketing=marketing, store=store, campaign_id=campaign_id,
+        return WorkerContext(marketing=marketing, store=store,
                              cfg=cfg, revenue_collector=revenue_collector)
 
     sched = BlockingScheduler(timezone="Asia/Almaty")
     sched.add_job(lambda: run_revenue_cycle(build_ctx()), "interval", minutes=60,
                   id="revenue")
-    sched.add_job(lambda: run_tick(build_ctx(), "fast"), "interval", minutes=20,
+    sched.add_job(lambda: run_tick(build_ctx(), "fast", campaign_id), "interval", minutes=20,
                   id="fast")
-    sched.add_job(lambda: run_tick(build_ctx(), "slow"), "cron", hour="10,20",
+    sched.add_job(lambda: run_tick(build_ctx(), "slow", campaign_id), "cron", hour="10,20",
                   id="slow")
 
     def analyst_job():
