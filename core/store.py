@@ -46,7 +46,8 @@ class Store:
 
             CREATE TABLE IF NOT EXISTS decisions_log (
                 ts INTEGER, day TEXT, sku TEXT, merchant_sku TEXT, old_bid REAL,
-                new_bid REAL, action TEXT, loop TEXT, reason TEXT, applied INTEGER
+                new_bid REAL, action TEXT, loop TEXT, reason TEXT, applied INTEGER,
+                campaign_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_decisions_sku_day ON decisions_log(sku, day);
 
@@ -55,6 +56,12 @@ class Store:
                 PRIMARY KEY (day, sku)
             );
         """)
+        # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
+        cols = {r["name"] for r in
+                self._conn.execute("PRAGMA table_info(decisions_log)")}
+        if "campaign_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE decisions_log ADD COLUMN campaign_id TEXT")
         self._conn.commit()
 
     # ---- снапшоты товаров ---------------------------------------------------
@@ -107,13 +114,15 @@ class Store:
 
     # ---- лог решений --------------------------------------------------------
 
-    def log_decision(self, d: Decision, ts: int, day: str, applied: bool):
+    def log_decision(self, d: Decision, ts: int, day: str, applied: bool,
+                     campaign_id: str = ""):
         self._conn.execute(
             """INSERT INTO decisions_log
-               (ts, day, sku, merchant_sku, old_bid, new_bid, action, loop, reason, applied)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+               (ts, day, sku, merchant_sku, old_bid, new_bid, action, loop,
+                reason, applied, campaign_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (ts, day, d.sku, d.merchant_sku, d.old_bid, d.new_bid,
-             d.action, d.loop, d.reason, int(applied)),
+             d.action, d.loop, d.reason, int(applied), campaign_id),
         )
         self._conn.commit()
 

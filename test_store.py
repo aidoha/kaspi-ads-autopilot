@@ -113,6 +113,36 @@ def test_get_decisions_for_day():
     print("✓ store: get_decisions_for_day (фильтр по дню, порядок по ts)")
 
 
+def test_log_decision_writes_campaign_id():
+    st = new_store()
+    st.log_decision(dec(action="lower"), ts=1000, day="2026-08-09",
+                    applied=True, campaign_id="2899523")
+    rows = st.get_decisions_for_day("2026-08-09")
+    assert rows[0]["campaign_id"] == "2899523"
+    print("✓ store: log_decision пишет campaign_id")
+
+
+def test_migration_adds_campaign_id_to_old_db():
+    import os, sqlite3, tempfile
+    path = os.path.join(tempfile.mkdtemp(), "old.db")
+    # старая схема decisions_log БЕЗ campaign_id
+    con = sqlite3.connect(path)
+    con.executescript(
+        "CREATE TABLE decisions_log (ts INTEGER, day TEXT, sku TEXT, "
+        "merchant_sku TEXT, old_bid REAL, new_bid REAL, action TEXT, "
+        "loop TEXT, reason TEXT, applied INTEGER);"
+    )
+    con.commit(); con.close()
+
+    st = Store(path)   # инициализация должна добавить колонку
+    cols = {r["name"] for r in st._conn.execute("PRAGMA table_info(decisions_log)")}
+    assert "campaign_id" in cols, cols
+    # и запись после миграции работает
+    st.log_decision(dec(), ts=1, day="2026-08-09", applied=False, campaign_id="X")
+    assert st.get_decisions_for_day("2026-08-09")[0]["campaign_id"] == "X"
+    print("✓ store: миграция добавляет campaign_id в старую БД")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -120,5 +150,7 @@ if __name__ == "__main__":
     test_daily_state_combines()
     test_tacos_daily_record()
     test_get_decisions_for_day()
+    test_log_decision_writes_campaign_id()
+    test_migration_adds_campaign_id_to_old_db()
     print("-" * 60)
     print("✓ Все проверки store прошли")
