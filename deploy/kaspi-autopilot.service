@@ -5,6 +5,11 @@
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now kaspi-autopilot
 # Логи:  journalctl -u kaspi-autopilot -f
+#
+# ВАЖНО: креды НЕ через systemd EnvironmentFile — он НЕ срезает инлайн-
+# комментарии (KASPI_...=832398  # ...), и значение ушло бы вместе с "# ...".
+# Вместо этого worker.py сам грузит config/.env через python-dotenv (dotenv
+# комментарии срезает). Путь к .env задаём через ENV_FILE ниже.
 
 [Unit]
 Description=Kaspi Ads Autopilot
@@ -15,7 +20,8 @@ Wants=network-online.target
 Type=simple
 User=kaspi
 WorkingDirectory=/opt/kaspi-ads-autopilot
-EnvironmentFile=/opt/kaspi-ads-autopilot/config/.env
+Environment=ENV_FILE=/opt/kaspi-ads-autopilot/config/.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/kaspi-ads-autopilot/.venv/bin/python worker.py
 Restart=on-failure
 RestartSec=30

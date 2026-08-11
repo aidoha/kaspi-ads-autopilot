@@ -167,6 +167,7 @@ def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int,
 def main():  # pragma: no cover
     """Собирает боевые зависимости и запускает планировщик. Только тут — сеть/браузер."""
     import os
+    import sys
     from apscheduler.schedulers.blocking import BlockingScheduler
 
     from connectors.merchant_client import MerchantClient
@@ -213,6 +214,18 @@ def main():  # pragma: no cover
         return WorkerContext(marketing=marketing, store=store, cfg=cfg,
                              campaign_ids=campaign_ids,
                              revenue_collector=revenue_collector)
+
+    # Смоук-режим: разовый прогон всего конвейера и выход (без планировщика).
+    # Для проверки на VPS сразу после выката — что IP не блокируется, логин
+    # проходит, кампании читаются, решения логируются. Ставки не трогаются (dry_run).
+    if "--once" in sys.argv:
+        log.info("Разовый прогон (--once): revenue → fast → slow, затем выход.")
+        run_revenue_cycle(build_ctx())
+        run_cycle(build_ctx(), "fast")
+        run_cycle(build_ctx(), "slow")
+        log.info("Разовый прогон завершён (dry_run=%s). Проверь решения в логе выше.",
+                 cfg.dry_run)
+        return
 
     sched = BlockingScheduler(timezone="Asia/Almaty")
     sched.add_job(lambda: run_revenue_cycle(build_ctx()), "interval", minutes=60,
