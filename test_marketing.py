@@ -76,7 +76,7 @@ SAMPLE_CAMPAIGNS = {
 }
 
 
-def make_client(handler, *, dry_run=True, max_retries=3):
+def make_client(handler, *, dry_run=True, max_retries=3, on_auth_error=None):
     """MarketingClient c инъекцией httpx-клиента на MockTransport."""
     transport = httpx.MockTransport(handler)
     http = httpx.Client(transport=transport, base_url="https://marketing.kaspi.kz")
@@ -86,6 +86,7 @@ def make_client(handler, *, dry_run=True, max_retries=3):
         dry_run=dry_run,
         max_retries=max_retries,
         backoff_base=0,  # без реальных пауз в тесте
+        on_auth_error=on_auth_error,
     )
 
 
@@ -201,11 +202,81 @@ def test_get_retries_on_429():
     print("✓ get_campaign_products: ретрай на 429")
 
 
+def test_401_refreshes_session_and_retries():
+    # Сессия протухла (сервер инвалидировал раньше таймстампа) → 401.
+    # Клиент обязан один раз обновить куки через on_auth_error и повторить запрос.
+    calls = {"n": 0}
+    refresh = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(401, json={"error": "unauthorized"})
+        return httpx.Response(200, json=SAMPLE_PRODUCTS)
+
+    def on_auth_error():
+        refresh["n"] += 1
+        return {"X-Kb-Session-Id": "fresh-cookie"}   # свежие куки
+
+    with make_client(handler, on_auth_error=on_auth_error) as mc:
+        products = mc.get_campaign_products(CAMPAIGN_ID, "2026-08-08", "2026-08-09")
+
+    assert refresh["n"] == 1, "на 401 сессия должна обновиться ровно один раз"
+    assert calls["n"] == 2, "после обновления сессии — повторный запрос"
+    assert len(products) == 2, "повтор вернул данные"
+    print("✓ marketing: 401 → обновление сессии + повтор запроса")
+
+
+def test_401_gives_up_if_refresh_does_not_help():
+    # Если после обновления сессии всё равно 401 — не виснем: обновляем один раз,
+    # дальше отдаём ошибку (RuntimeError), а не крутимся бесконечно.
+    calls = {"n": 0}
+    refresh = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    def on_auth_error():
+        refresh["n"] += 1
+        return {"X-Kb-Session-Id": "still-bad"}
+
+    raised = False
+    with make_client(handler, max_retries=4, on_auth_error=on_auth_error) as mc:
+        try:
+            mc.get_campaign_products(CAMPAIGN_ID, "2026-08-08", "2026-08-09")
+        except RuntimeError:
+            raised = True
+
+    assert raised, "стойкий 401 должен привести к ошибке, а не к зависанию"
+    assert refresh["n"] == 1, "обновляем сессию не более одного раза за запрос"
+    print("✓ marketing: стойкий 401 → одна попытка refresh, затем ошибка")
+
+
+def test_401_without_provider_raises():
+    # Без on_auth_error 401 просто приводит к ошибке (обратная совместимость).
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    raised = False
+    with make_client(handler, max_retries=2) as mc:
+        try:
+            mc.get_campaign_products(CAMPAIGN_ID, "2026-08-08", "2026-08-09")
+        except RuntimeError:
+            raised = True
+
+    assert raised, "401 без провайдера рефреша — ошибка, не зависание"
+    print("✓ marketing: 401 без провайдера — ошибка")
+
+
 if __name__ == "__main__":
     test_get_products_parses_fields()
     test_list_active_campaigns_filters_enabled()
     test_dry_run_does_not_send_put()
     test_live_put_sends_correct_request()
     test_get_retries_on_429()
+    test_401_refreshes_session_and_retries()
+    test_401_gives_up_if_refresh_does_not_help()
+    test_401_without_provider_raises()
     print("-" * 60)
     print("✓ Все проверки marketing_client прошли")

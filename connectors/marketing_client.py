@@ -20,6 +20,7 @@ from __future__ import annotations
 import time
 import logging
 from dataclasses import dataclass
+from typing import Callable
 
 import httpx
 
@@ -95,6 +96,7 @@ class MarketingClient:
         timeout: float = 30.0,
         max_retries: int = 3,
         backoff_base: float = 2.0,
+        on_auth_error: "Callable[[], dict] | None" = None,
     ):
         if not merchant_id:
             raise ValueError("merchant_id пуст — проверь конфиг (marketing merchantId)")
@@ -102,6 +104,11 @@ class MarketingClient:
         self.dry_run = dry_run
         self._max_retries = max_retries
         self._backoff_base = backoff_base
+        # Колбэк «сессия протухла»: возвращает свежие куки (обычно
+        # session.get_cookies(force_refresh=True)). Дёргается на 401/403 —
+        # is_session_fresh судит только по таймстампу куки, а сервер может
+        # инвалидировать сессию раньше (другой логин / ротация).
+        self._on_auth_error = on_auth_error
         if client is not None:
             # Инъекция готового клиента (тесты / кастомная сессия).
             self._client = client
@@ -126,9 +133,20 @@ class MarketingClient:
 
     def _request(self, method: str, url: str, **kwargs) -> dict:
         last_exc = None
+        refreshed = False
         for attempt in range(self._max_retries):
             try:
                 r = self._client.request(method, url, **kwargs)
+                if (r.status_code in (401, 403) and self._on_auth_error
+                        and not refreshed):
+                    # Сессия протухла: обновляем куки и повторяем ОДИН раз.
+                    # not refreshed страхует от бесконечного цикла, если
+                    # рефреш не помог.
+                    log.warning("Marketing %s %s → %s: сессия протухла, "
+                                "обновляю и повторяю", method, url, r.status_code)
+                    self._client.cookies.update(self._on_auth_error())
+                    refreshed = True
+                    continue
                 if r.status_code == 429 or r.status_code >= 500:
                     wait = self._backoff_base * (2 ** attempt)
                     log.warning("Marketing %s %s → %s, retry через %ss",

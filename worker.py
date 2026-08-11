@@ -204,7 +204,12 @@ def main():  # pragma: no cover
     def build_ctx() -> WorkerContext:
         # Свежие куки на каждый цикл; при блокировке SessionManager сам поднимет алерт+стоп.
         cookies = session.get_cookies()
-        marketing = MarketingClient(merchant_id, cookies=cookies, dry_run=cfg.dry_run)
+        # on_auth_error: на 401/403 (сессия инвалидирована сервером раньше
+        # таймстампа куки) клиент форсирует релогин и повторяет запрос.
+        marketing = MarketingClient(
+            merchant_id, cookies=cookies, dry_run=cfg.dry_run,
+            on_auth_error=lambda: session.get_cookies(force_refresh=True),
+        )
         return WorkerContext(marketing=marketing, store=store, cfg=cfg,
                              campaign_ids=campaign_ids,
                              revenue_collector=revenue_collector)
