@@ -2,6 +2,7 @@
 .env
 config/.env
 storage_state.json
+storage_state*.json
 *.session
 
 # База и кэш

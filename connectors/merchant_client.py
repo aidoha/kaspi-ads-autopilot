@@ -24,6 +24,13 @@ log = logging.getLogger("merchant")
 
 BASE_URL = "https://kaspi.kz/shop/api/v2"
 
+# Браузерный UA обязателен: Kaspi WAF молча дропает запросы без него (TLS проходит,
+# HTTP-ответ не приходит) — проверено на живом API. Держим синхронно с marketing_client.
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 # Статусы, при которых заказ НЕ считается выручкой.
 # Договорённость: отмены (CANCELLED/CANCELLING) вычитаем из выручки,
 # возвраты (RETURNED) — оставляем (их в TACoS не учитываем как вычет).
@@ -69,6 +76,7 @@ class MerchantClient:
         self._client = httpx.Client(
             base_url=BASE_URL,
             headers={
+                "User-Agent": BROWSER_UA,
                 "X-Auth-Token": auth_token,
                 "Content-Type": "application/vnd.api+json",
                 "Accept": "application/vnd.api+json",
@@ -157,17 +165,26 @@ class MerchantClient:
         out: list[OrderEntry] = []
         for row in data.get("data", []):
             attr = row.get("attributes", {})
-            # merchantProduct.code лежит в атрибутах entry; в разных версиях
-            # API поле может называться по-разному — пробуем известные варианты.
+            # Проверено на живом Shop API: артикул продавца (наш merchantSku,
+            # ключ сшивки с маркетингом) лежит в attributes.offer.code, а имя —
+            # в attributes.offer.name. relationships.product — это мастер-продукт
+            # Kaspi, НЕ наш SKU. Старые плоские варианты держим как фолбэк.
+            offer = attr.get("offer") or {}
             msku = (
-                attr.get("merchantProductCode")
+                offer.get("code")
+                or attr.get("merchantProductCode")
                 or attr.get("offerCode")
                 or attr.get("code")
                 or ""
             )
+            name = (
+                offer.get("name")
+                or attr.get("name", "")
+                or attr.get("productName", "")
+            )
             out.append(OrderEntry(
                 merchant_sku=str(msku),
-                name=attr.get("name", "") or attr.get("productName", ""),
+                name=name,
                 quantity=int(attr.get("quantity", 0) or 0),
                 total_price=float(attr.get("totalPrice", 0) or 0),
             ))

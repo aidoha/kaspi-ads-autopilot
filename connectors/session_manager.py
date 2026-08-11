@@ -26,12 +26,15 @@ from typing import Callable, Protocol
 
 log = logging.getLogger("session")
 
-LOGIN_URL = "https://marketing.kaspi.kz/"
+# Реальная форма входа — на /sign-in (подтверждено на живом кабинете): лендинг
+# marketing.kaspi.kz формы НЕ содержит, редиректит сюда. Поле логина — телефон
+# (input[type=tel]), затем пароль. SMS/2FA у владельца нет.
+LOGIN_URL = "https://marketing.kaspi.kz/sign-in"
 
-# Плейсхолдер — точное имя сессионной куки кабинета подтвердить на живом входе
-# (посмотреть storage_state после ручного логина). До подтверждения работает
-# страховка: marketing_client получит 401/редирект → worker дёрнет force_refresh.
-DEFAULT_REQUIRED_COOKIES = ["kaspi_session"]
+# Подтверждено на живом входе (storage_state после ручного логина): сессионная
+# кука кабинета — X-Kb-Session-Id на домене .kaspi.kz (живёт ~сутки). Куки route
+# на marketing.kaspi.kz — балансировщик, для авторизации не обязательны.
+DEFAULT_REQUIRED_COOKIES = ["X-Kb-Session-Id"]
 
 KASPI_DOMAIN = "kaspi.kz"
 
@@ -184,10 +187,17 @@ class SessionManager:
         классифицирует итоговый экран и на неожиданном (OTP/капча) поднимает
         SessionBlockedError. Возвращает storage_state (dict).
 
-        ВНИМАНИЕ: селекторы формы Kaspi нужно подтвердить на живом кабинете —
-        это единственное место, требующее проверки глазами в браузере.
+        Проверено на живом кабинете (headless): форма /sign-in — телефон
+        (input[type=tel], маска +7 …) + пароль, сабмит — кнопка «Войти»
+        (button[type=submit]). Логин проходит, выдаётся X-Kb-Session-Id.
         """
         from playwright.sync_api import sync_playwright  # ленивый импорт
+        from playwright.sync_api import TimeoutError as PWTimeout
+
+        OTP_CAPTCHA_SEL = (
+            "input[name='otp'], input[autocomplete='one-time-code'], "
+            "iframe[src*='captcha'], .captcha, #captcha"
+        )
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -196,12 +206,34 @@ class SessionManager:
             try:
                 page.goto(LOGIN_URL, wait_until="domcontentloaded")
 
-                # Форма логина (селекторы — подтвердить на живом входе).
-                if page.query_selector("input[name='login'], input[type='email']"):
-                    page.fill("input[name='login'], input[type='email']", self.login)
+                # Форма логина: телефон (input[type=tel]) + пароль. Селекторы с
+                # живого /sign-in (у полей нет name/id). Сабмит — кнопка «Войти».
+                # SPA рисует форму НЕ сразу — ждём её появления, иначе headless
+                # проверит пустую страницу и решит «форма осталась».
+                login_sel = "input[type='tel'], input[name='login'], input[type='email']"
+                try:
+                    page.wait_for_selector("input[type='password']", timeout=15000)
+                except PWTimeout:
+                    pass  # формы нет — возможно, уже залогинены; классифицируем ниже
+
+                if page.query_selector("input[type='password']"):
+                    page.fill(login_sel, self.login)
+                    page.wait_for_timeout(400)   # дать маске телефона осесть
                     page.fill("input[type='password']", self.password)
+                    # ВАЖНО: жать именно submit («Войти»). НЕ "form button" —
+                    # в форме первой в DOM идёт кнопка «Забыли пароль?».
                     page.click("button[type='submit']")
-                    page.wait_for_load_state("networkidle")
+                    # Ждём завершения логина: форма пароля исчезнет ИЛИ выскочит
+                    # неожиданный экран (OTP/капча). networkidle тут ненадёжен —
+                    # SPA бывает idle ещё до редиректа.
+                    deadline = self._now() + 20
+                    while self._now() < deadline:
+                        if not page.query_selector("input[type='password']"):
+                            break
+                        if page.query_selector(OTP_CAPTCHA_SEL):
+                            break
+                        page.wait_for_timeout(500)
+                    page.wait_for_timeout(1000)  # дать сессионной куке осесть
 
                 sig = PageSignals(
                     on_dashboard="marketing.kaspi.kz" in page.url

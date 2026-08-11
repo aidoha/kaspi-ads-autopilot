@@ -27,9 +27,18 @@ log = logging.getLogger("marketing")
 
 BASE_URL = "https://marketing.kaspi.kz"
 
+# Браузерный UA обязателен: Kaspi на уровне WAF молча дропает запросы без
+# него (TLS-хендшейк проходит, но HTTP-ответ не отдаётся) — проверено на живом
+# кабинете. Один и тот же UA держим в обоих клиентах (см. merchant_client).
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 # Заголовки, которые кабинет шлёт со своих XHR — воспроизводим, чтобы эндпоинт
 # не отбил запрос как «не из браузера». Куки добавляются отдельно (снаружи).
 DEFAULT_HEADERS = {
+    "User-Agent": BROWSER_UA,
     "X-Requested-With": "XMLHttpRequest",
     "Content-Type": "application/json",
     "Origin": BASE_URL,
