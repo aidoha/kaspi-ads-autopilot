@@ -71,6 +71,14 @@ class CampaignProduct:
     price: float
 
 
+@dataclass
+class Campaign:
+    """Рекламная кампания кабинета (шапка списка)."""
+    id: str
+    name: str
+    state: str          # Enabled / Paused / Archived
+
+
 class MarketingClient:
     """
     Тонкий клиент к внутренним эндпоинтам маркетингового кабинета.
@@ -180,6 +188,32 @@ class MarketingClient:
                 carts=int(row.get("carts", 0) or 0),
                 transactions=int(row.get("transactions", 0) or 0),
                 price=float(row.get("price", 0) or 0),
+            ))
+        return out
+
+    def list_active_campaigns(
+        self, start_date: str, end_date: str
+    ) -> list["Campaign"]:
+        """
+        Список кампаний в статусе Enabled за окно [start_date, end_date]
+        (YYYY-MM-DD). Ответ: {"data": [{"id", "name", "state"}, ...]}.
+        Фильтр state=Enabled шлём серверу и дублируем на клиенте (страховка).
+        """
+        url = (
+            f"/advertising/products/api/v5/merchant/{self.merchant_id}/Campaigns"
+        )
+        params = {"StartDate": start_date, "EndDate": end_date, "state": "Enabled"}
+        data = self._request("GET", url, params=params)
+
+        out: list[Campaign] = []
+        for row in data.get("data", []):
+            state = str(row.get("state", ""))
+            if state != "Enabled":
+                continue
+            out.append(Campaign(
+                id=str(row.get("id", "")),
+                name=str(row.get("name", "")),
+                state=state,
             ))
         return out
 

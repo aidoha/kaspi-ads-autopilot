@@ -66,6 +66,15 @@ SAMPLE_PRODUCTS = {
     ],
 }
 
+SAMPLE_CAMPAIGNS = {
+    "data": [
+        {"id": 2899523, "name": "Бритвы", "state": "Enabled"},
+        {"id": 3032419, "name": "Аэрогриль 08.08.2026", "state": "Enabled"},
+        {"id": 2711494, "name": "Аэрогриль", "state": "Paused"},
+        {"id": 2268077, "name": "5 ноября", "state": "Archived"},
+    ],
+}
+
 
 def make_client(handler, *, dry_run=True, max_retries=3):
     """MarketingClient c инъекцией httpx-клиента на MockTransport."""
@@ -110,6 +119,29 @@ def test_get_products_parses_fields():
     assert p.clicks == 120
     assert p.carts == 9
     print("✓ get_campaign_products: парсинг полей и URL")
+
+
+def test_list_active_campaigns_filters_enabled():
+    from connectors.marketing_client import Campaign
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json=SAMPLE_CAMPAIGNS)
+
+    with make_client(handler) as mc:
+        campaigns = mc.list_active_campaigns("2026-08-10", "2026-08-11")
+
+    assert f"merchant/{MERCHANT_ID}/Campaigns" in captured["url"], captured["url"]
+    assert "state=Enabled" in captured["url"], captured["url"]
+    assert "StartDate=2026-08-10" in captured["url"], captured["url"]
+    assert "EndDate=2026-08-11" in captured["url"], captured["url"]
+    # только Enabled, id приведён к строке
+    assert [(c.id, c.name) for c in campaigns] == [
+        ("2899523", "Бритвы"), ("3032419", "Аэрогриль 08.08.2026")
+    ]
+    assert all(isinstance(c, Campaign) and c.state == "Enabled" for c in campaigns)
+    print("✓ marketing: list_active_campaigns фильтрует Enabled и парсит поля")
 
 
 def test_dry_run_does_not_send_put():
@@ -171,6 +203,7 @@ def test_get_retries_on_429():
 
 if __name__ == "__main__":
     test_get_products_parses_fields()
+    test_list_active_campaigns_filters_enabled()
     test_dry_run_does_not_send_put()
     test_live_put_sends_correct_request()
     test_get_retries_on_429()
