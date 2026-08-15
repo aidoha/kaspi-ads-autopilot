@@ -18,7 +18,7 @@ from connectors.marketing_client import CampaignProduct, Campaign
 from core.revenue import SkuRevenue
 from core.rules import RulesConfig
 from core.store import Store
-from worker import WorkerContext, run_tick, run_revenue_cycle, run_cycle
+from worker import WorkerContext, run_tick, run_revenue_cycle, run_cycle, load_cfg_safe
 
 ALMATY = ZoneInfo("Asia/Almaty")
 NOW = lambda: datetime(2026, 8, 9, 14, 0, tzinfo=ALMATY)
@@ -194,6 +194,24 @@ def test_run_cycle_passes_campaign_budget_to_fast_brake():
     print("✓ worker: run_cycle пробрасывает бюджет кампании в тормоз (лимит от бюджета)")
 
 
+def test_load_cfg_safe_hot_reload_and_fallback():
+    from core.settings_io import save_settings, load_settings
+    p = os.path.join(tempfile.mkdtemp(), "rules.yaml")
+    save_settings(p, dict(load_settings(p), dry_run=True, min_bid=1))
+    cfg1 = load_cfg_safe(p, None)
+    assert cfg1.dry_run is True
+    # правим файл — следующий вызов видит новое значение (hot-reload)
+    save_settings(p, dict(load_settings(p), dry_run=False, min_bid=5))
+    cfg2 = load_cfg_safe(p, cfg1)
+    assert cfg2.dry_run is False and cfg2.min_bid == 5
+    # битый файл → возвращаем прошлый cfg, не падаем
+    with open(p, "w") as f:
+        f.write("%%% not yaml : : :")
+    cfg3 = load_cfg_safe(p, cfg2)
+    assert cfg3 is cfg2
+    print("✓ worker: load_cfg_safe — hot-reload + фолбэк на прошлый cfg при битом yaml")
+
+
 if __name__ == "__main__":
     test_dry_run_logs_but_no_put()
     test_live_run_sends_put_with_new_bid()
@@ -204,5 +222,6 @@ if __name__ == "__main__":
     test_run_cycle_isolates_failing_campaign()
     test_run_cycle_empty_is_noop()
     test_run_cycle_passes_campaign_budget_to_fast_brake()
+    test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

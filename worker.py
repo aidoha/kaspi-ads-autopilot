@@ -163,6 +163,21 @@ def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int,
                                campaign_id=campaign_id)
 
 
+# ---- чтение конфига с fallback -------------------------------------------------
+
+def load_cfg_safe(path: str, prev):
+    """Читает rules.yaml; при ошибке парсинга возвращает prev (не роняем воркер).
+    prev=None и битый файл → пробрасываем ошибку (нечем фолбэкнуться на старте)."""
+    from core.rules import load_rules_config
+    try:
+        return load_rules_config(path)
+    except Exception as e:
+        if prev is None:
+            raise
+        log.error("rules.yaml не читается (%s) — оставляю прошлый конфиг", e)
+        return prev
+
+
 # ---- боевая обвязка (тонкая, не под тестом) --------------------------------
 
 def main():  # pragma: no cover
@@ -189,10 +204,11 @@ def main():  # pragma: no cover
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    cfg = load_rules_config(os.environ.get("RULES_CONFIG", "config/rules.yaml"))
+    rules_path = os.environ.get("RULES_CONFIG", "config/rules.yaml")
+    cfg_holder = {"cfg": load_cfg_safe(rules_path, None)}
     merchant_id = os.environ["KASPI_MARKETING_MERCHANT_ID"]
-    ids_env = os.environ.get("KASPI_CAMPAIGN_IDS", "").strip()
-    campaign_ids = [c.strip() for c in ids_env.split(",") if c.strip()] or None
+    env_ids = os.environ.get("KASPI_CAMPAIGN_IDS", "").strip()
+    env_ids = [c.strip() for c in env_ids.split(",") if c.strip()] or None
 
     store = Store(os.environ.get("DB_PATH", "db/autopilot.db"))
     session = SessionManager(
@@ -204,6 +220,9 @@ def main():  # pragma: no cover
     revenue_collector = RevenueCollector(merchant)
 
     def build_ctx() -> WorkerContext:
+        # Читаем cfg каждый цикл (hot-reload rules.yaml)
+        cfg = load_cfg_safe(rules_path, cfg_holder["cfg"])
+        cfg_holder["cfg"] = cfg
         # Свежие куки на каждый цикл; при блокировке SessionManager сам поднимет алерт+стоп.
         cookies = session.get_cookies()
         # on_auth_error: на 401/403 (сессия инвалидирована сервером раньше
@@ -212,6 +231,7 @@ def main():  # pragma: no cover
             merchant_id, cookies=cookies, dry_run=cfg.dry_run,
             on_auth_error=lambda: session.get_cookies(force_refresh=True),
         )
+        campaign_ids = cfg.campaign_ids or env_ids
         return WorkerContext(marketing=marketing, store=store, cfg=cfg,
                              campaign_ids=campaign_ids,
                              revenue_collector=revenue_collector)
@@ -225,7 +245,7 @@ def main():  # pragma: no cover
         run_cycle(build_ctx(), "fast")
         run_cycle(build_ctx(), "slow")
         log.info("Разовый прогон завершён (dry_run=%s). Проверь решения в логе выше.",
-                 cfg.dry_run)
+                 cfg_holder["cfg"].dry_run)
         return
 
     sched = BlockingScheduler(timezone="Asia/Almaty")
@@ -246,7 +266,7 @@ def main():  # pragma: no cover
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
              "fast/20м, slow/10:00,20:00, analyst/22:00 (Алматы)",
-             cfg.dry_run, campaign_ids or "все активные")
+             cfg_holder["cfg"].dry_run, env_ids or "все активные")
     sched.start()
 
 
