@@ -68,6 +68,16 @@ def test_prev_avg_cpc_from_last_snapshot():
     print("✓ store: get_prev_avg_cpc берёт последний снапшот")
 
 
+def test_get_latest_snapshot():
+    st = new_store()
+    assert st.get_latest_snapshot("166350900") is None       # снапшотов ещё нет
+    st.save_products_snapshot([cp(bid=18, avg_cpc=10.0)], ts=1000)
+    st.save_products_snapshot([cp(bid=20, avg_cpc=14.0)], ts=2000)
+    snap = st.get_latest_snapshot("166350900")
+    assert snap["bid"] == 20 and snap["avg_cpc"] == 14.0      # берём самый свежий
+    print("✓ store: get_latest_snapshot берёт последний снапшот целиком")
+
+
 def test_decisions_log_and_change_count():
     st = new_store()
     st.log_decision(dec(action="lower"), ts=1000, day="2026-08-09", applied=False)
@@ -158,6 +168,7 @@ def test_settings_audit():
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
+    test_get_latest_snapshot()
     test_decisions_log_and_change_count()
     test_daily_state_combines()
     test_tacos_daily_record()

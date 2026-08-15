@@ -2,9 +2,11 @@
 (воркер перечитывает на лету), читает db/autopilot.db для дашборда."""
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -16,7 +18,58 @@ from core.settings_io import load_settings, save_settings, validate_settings, SE
 from core.store import Store
 from webui.auth import verify_password
 
+log = logging.getLogger("webui")
+
 _HERE = os.path.dirname(__file__)
+ALMATY = ZoneInfo("Asia/Almaty")
+
+# Кэш бюджетов кампаний на модульном уровне: дашборд может открываться часто,
+# а бюджеты живут в кабинете (Playwright-логин, PUT-чувствительная сессия) —
+# не хотим долбить его на каждый рендер и конфликтовать с воркером за сессию.
+_BUDGET_CACHE_TTL = 60.0
+_budget_cache: dict = {"ts": 0.0, "budgets": {}}
+
+
+def _get_campaign_budgets() -> dict:
+    """Бюджеты активных кампаний кабинета — best-effort. Любая проблема (нет
+    storage_state, нет кредов, кабинет недоступен) молча гасится: дашборд
+    рендерится без бюджетов, а не падает 500-й. Кэш на ~60с."""
+    now = time.time()
+    if now - _budget_cache["ts"] < _BUDGET_CACHE_TTL:
+        return _budget_cache["budgets"]
+
+    budgets: dict = {}
+    try:
+        storage_path = os.environ.get("STORAGE_STATE", "storage_state.json")
+        merchant_id = os.environ.get("KASPI_MARKETING_MERCHANT_ID", "")
+        login = os.environ.get("KASPI_MARKETING_LOGIN", "")
+        password = os.environ.get("KASPI_MARKETING_PASSWORD", "")
+        if storage_path and os.path.exists(storage_path) and merchant_id and login and password:
+            from connectors.session_manager import SessionManager
+            from connectors.marketing_client import MarketingClient
+
+            session = SessionManager(merchant_login=login, merchant_password=password,
+                                     storage_path=storage_path)
+            cookies = session.get_cookies()
+            marketing = MarketingClient(
+                merchant_id, cookies=cookies, dry_run=True,
+                on_auth_error=lambda: session.get_cookies(force_refresh=True))
+            try:
+                today = datetime.now(ALMATY).date().isoformat()
+                campaigns = marketing.list_active_campaigns(today, today)
+                budgets = {c.id: {"name": c.name, "daily_budget": c.daily_budget}
+                          for c in campaigns}
+            finally:
+                marketing.close()
+    except Exception as e:
+        # Best-effort: сессия кабинета недоступна/протухла/блокирована — дашборд
+        # не должен падать из-за этого, просто покажем без бюджетов.
+        log.warning("Бюджеты кампаний недоступны, показываю дашборд без них: %s", e)
+        budgets = {}
+
+    _budget_cache["ts"] = now
+    _budget_cache["budgets"] = budgets
+    return budgets
 
 
 def create_app() -> FastAPI:
@@ -80,9 +133,22 @@ def create_app() -> FastAPI:
     def dashboard(request: Request):
         if not user(request):
             return RedirectResponse("/login", status_code=303)
-        # Фаза 2 наполнит; пока — заглушка со ссылкой на настройки.
-        return templates.TemplateResponse("dashboard.html",
-                                          {"request": request, "user": user(request)})
+        day = datetime.now(ALMATY).date().isoformat()
+        store = Store(db_path)
+        try:
+            decisions = store.get_decisions_for_day(day)
+            tacos_rows = store.get_tacos_daily(day)
+            # Текущая ставка по SKU — из последнего снапшота товара (bid из
+            # products_snapshot); присоединяем к строке TACoS.
+            for row in tacos_rows:
+                snap = store.get_latest_snapshot(row["sku"])
+                row["bid"] = snap["bid"] if snap else None
+        finally:
+            store.close()
+        budgets = _get_campaign_budgets()
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request, "user": user(request), "day": day,
+            "decisions": decisions, "tacos": tacos_rows, "budgets": budgets})
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_form(request: Request):

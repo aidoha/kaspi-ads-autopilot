@@ -99,6 +99,24 @@ def test_settings_save_does_not_touch_dry_run():
     print("✓ webui: POST /settings не трогает dry_run")
 
 
+def test_dashboard_shows_decisions_from_db():
+    c, rules = _client()
+    # наполнить БД решением
+    from core.store import Store
+    from core.rules import Decision
+    import time as _t
+    db = os.environ["DB_PATH"]
+    st = Store(db)
+    day = __import__("datetime").date.today().isoformat()
+    st.log_decision(Decision("SKU1", "M1", 10, 8, "lower", "slow", "TACoS высокий"),
+                    ts=int(_t.time()), day=day, applied=False, campaign_id="2899523")
+    c.post("/login", data={"username": "admin", "password": "secret"})
+    r = c.get("/")
+    assert r.status_code == 200
+    assert "SKU1" in r.text and "TACoS высокий" in r.text
+    print("✓ webui: дашборд показывает решения из БД")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -106,5 +124,6 @@ if __name__ == "__main__":
     test_invalid_settings_rejected()
     test_dry_run_toggle()
     test_settings_save_does_not_touch_dry_run()
+    test_dashboard_shows_decisions_from_db()
     print("-" * 60)
     print("✓ Все проверки webui прошли")

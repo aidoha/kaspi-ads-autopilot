@@ -95,6 +95,14 @@ class Store:
         ).fetchone()
         return row["avg_cpc"] if row else None
 
+    def get_latest_snapshot(self, sku: str) -> dict | None:
+        """Последний снапшот товара (для дашборда — текущая ставка и т.п.)."""
+        row = self._conn.execute(
+            "SELECT * FROM products_snapshot WHERE sku=? ORDER BY ts DESC LIMIT 1",
+            (sku,),
+        ).fetchone()
+        return dict(row) if row else None
+
     # ---- кэш выручки --------------------------------------------------------
 
     def put_revenue_cache(self, revenue: dict[str, SkuRevenue], ts: int):
