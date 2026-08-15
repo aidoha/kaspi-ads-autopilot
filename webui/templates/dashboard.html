@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — Kaspi Ads Autopilot{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Здравствуйте, {{ user }}</h1>
+  <p class="lead">
+    Дашборд с метриками (расход, TACoS, решения биддера) появится в следующей фазе.
+    Пока доступно управление настройками движка.
+  </p>
+  <div class="actions">
+    <a class="btn" href="/settings">Перейти к настройкам</a>
+  </div>
+</div>
+{% endblock %}

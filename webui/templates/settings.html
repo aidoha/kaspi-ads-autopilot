@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Настройки — Kaspi Ads Autopilot{% endblock %}
+{% block content %}
+
+{% set field_meta = {
+  'target_tacos_low': {'label': 'TACoS — нижняя граница', 'hint': 'Доля расходов на рекламу от выручки (0–1). Ниже этой границы ставка считается заниженной — движок будет её поднимать (медленный контур, по окупаемости).'},
+  'target_tacos_high': {'label': 'TACoS — верхняя граница', 'hint': 'Доля расходов на рекламу от выручки (0–1). Выше этой границы реклама не окупается — движок снижает ставку.'},
+  'daily_sku_cost_limit': {'label': 'Дневной лимит расхода на SKU, ₸', 'hint': 'Максимальный расход на один товар в сутки. При достижении — снижение ставки.'},
+  'sku_budget_fraction': {'label': 'Доля бюджета кампании на SKU', 'hint': 'Какую часть дневного бюджета кампании может занять один товар (0–1].'},
+  'min_clicks_for_no_cart_cut': {'label': 'Мин. кликов для отсечки без корзин', 'hint': 'Если по товару набралось столько кликов, а добавлений в корзину нет — сработает защитное снижение ставки (быстрый контур).'},
+  'cpc_spike_pct': {'label': 'Порог скачка CPC', 'hint': 'Рост среднего CPC к предыдущему замеру, после которого срабатывает защитное снижение. 0.5 значит «+50%».'},
+  'max_bid_step': {'label': 'Макс. шаг изменения ставки, ₸', 'hint': 'На сколько тенге ставка может измениться за одно решение движка.'},
+  'max_changes_per_day': {'label': 'Макс. изменений ставки в сутки', 'hint': 'Ограничение числа правок ставки на один товар в течение дня.'},
+  'bid_ceiling': {'label': 'Потолок ставки, ₸', 'hint': 'Верхняя граница ставки — выше движок не поднимет.'},
+  'min_bid': {'label': 'Минимальная ставка, ₸', 'hint': 'Нижняя граница ставки. Используется вместо паузы — у кабинета маркетинга нет эндпоинта паузы.'},
+  'min_score_for_raise': {'label': 'Мин. score для повышения', 'hint': 'Минимальный показатель эффективности товара, при котором движок разрешает поднимать ставку (медленный контур).'},
+} %}
+
+<h1>Настройки биддера</h1>
+<p class="lead">Правки пишутся в <code>config/rules.yaml</code> — воркер подхватывает их на следующем цикле, без перезапуска.</p>
+
+{% if errors %}
+<div class="errors" role="alert">
+  <p>Настройки не сохранены — исправьте ошибки:</p>
+  <ul>
+    {% for e in errors %}
+    <li>{{ e }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/settings">
+    <div class="settings-grid">
+      {% for f in fields %}
+        {% if f not in ('dry_run', 'campaign_ids') %}
+        <div class="field">
+          <label for="{{ f }}">{{ field_meta[f].label if f in field_meta else f }}</label>
+          <input type="number" step="any" id="{{ f }}" name="{{ f }}" value="{{ s[f] }}" required>
+          {% if f in field_meta %}<span class="hint">{{ field_meta[f].hint }}</span>{% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
+
+      {% if 'campaign_ids' in fields %}
+      <div class="field">
+        <label for="campaign_ids">ID кампаний (через запятую)</label>
+        <input type="text" id="campaign_ids" name="campaign_ids"
+               value="{{ (s.campaign_ids or []) | join(',') }}"
+               placeholder="2899523,3032419">
+        <span class="hint">Список кампаний, которые ведёт биддер. Пусто — вести все активные (Enabled) кампании маркетинга.</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="actions">
+      <button type="submit">Сохранить</button>
+    </div>
+  </form>
+</div>
+
+{% if 'dry_run' in fields %}
+<h2>Режим работы</h2>
+<div class="card">
+  <form method="post" action="/dry-run" id="dry-run-form" onsubmit="return kaAutopilotConfirmDryRun(this)">
+    <div class="toggle-card">
+      <div class="info">
+        <strong>Тестовый режим (dry_run)</strong>
+        <p>Включён — движок только считает решения и пишет их в лог, реальные ставки в кабинет Kaspi НЕ отправляются.
+           Выключен — биддер начинает реально менять ставки и тратить бюджет.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="dry-run-checkbox" name="dry_run" value="on" {% if s.dry_run %}checked{% endif %}>
+        <span class="slider" aria-hidden="true"></span>
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="secondary">Применить</button>
+    </div>
+  </form>
+</div>
+<script>
+  function kaAutopilotConfirmDryRun(form) {
+    var checkbox = form.querySelector('#dry-run-checkbox');
+    var wasEnabled = {{ 'true' if s.dry_run else 'false' }};
+    if (wasEnabled && !checkbox.checked) {
+      return confirm('Выключить тестовый режим? Биддер начнёт отправлять реальные ставки в кабинет Kaspi и тратить бюджет.');
+    }
+    return true;
+  }
+</script>
+{% endif %}
+
+<h2>Аудит изменений</h2>
+<div class="table-wrap">
+  {% if audit %}
+  <table>
+    <thead>
+      <tr>
+        <th>Время</th>
+        <th>Пользователь</th>
+        <th>Параметр</th>
+        <th>Было</th>
+        <th>Стало</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in audit %}
+      <tr>
+        <td>{{ row.ts | dt }}</td>
+        <td>{{ row.user }}</td>
+        <td>{{ row.field }}</td>
+        <td>{{ row.old }}</td>
+        <td>{{ row.new }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Правок ещё не было.</p>
+  {% endif %}
+</div>
+{% endblock %}

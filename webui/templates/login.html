@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Вход — Kaspi Ads Autopilot{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="card login-card">
+    <h1>Вход в панель</h1>
+    <p class="lead">Управление ставками биддера.</p>
+
+    {% if error %}
+    <div class="errors" role="alert">
+      <p>{{ error }}</p>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <div class="field">
+        <label for="username">Логин</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="actions">
+        <button type="submit">Войти</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
