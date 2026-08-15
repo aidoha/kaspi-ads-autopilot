@@ -78,6 +78,7 @@ class Campaign:
     id: str
     name: str
     state: str          # Enabled / Paused / Archived
+    daily_budget: float = 0.0   # dailyBudget из кабинета (₸/сутки); 0 = недоступен
 
 
 class MarketingClient:
@@ -232,6 +233,7 @@ class MarketingClient:
                 id=str(row.get("id", "")),
                 name=str(row.get("name", "")),
                 state=state,
+                daily_budget=float(row.get("dailyBudget", 0) or 0),
             ))
         return out
 

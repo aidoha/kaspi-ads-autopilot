@@ -68,10 +68,10 @@ SAMPLE_PRODUCTS = {
 
 SAMPLE_CAMPAIGNS = {
     "data": [
-        {"id": 2899523, "name": "Бритвы", "state": "Enabled"},
-        {"id": 3032419, "name": "Аэрогриль 08.08.2026", "state": "Enabled"},
-        {"id": 2711494, "name": "Аэрогриль", "state": "Paused"},
-        {"id": 2268077, "name": "5 ноября", "state": "Archived"},
+        {"id": 2899523, "name": "Бритвы", "state": "Enabled", "dailyBudget": 10000.0},
+        {"id": 3032419, "name": "Аэрогриль 08.08.2026", "state": "Enabled", "dailyBudget": 20000.0},
+        {"id": 2711494, "name": "Аэрогриль", "state": "Paused", "dailyBudget": 5000.0},
+        {"id": 2268077, "name": "5 ноября", "state": "Archived", "dailyBudget": 0.0},
     ],
 }
 
@@ -143,6 +143,18 @@ def test_list_active_campaigns_filters_enabled():
     ]
     assert all(isinstance(c, Campaign) and c.state == "Enabled" for c in campaigns)
     print("✓ marketing: list_active_campaigns фильтрует Enabled и парсит поля")
+
+
+def test_list_active_campaigns_parses_daily_budget():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=SAMPLE_CAMPAIGNS)
+
+    with make_client(handler) as mc:
+        campaigns = mc.list_active_campaigns("2026-08-10", "2026-08-11")
+
+    budgets = {c.id: c.daily_budget for c in campaigns}
+    assert budgets == {"2899523": 10000.0, "3032419": 20000.0}, budgets
+    print("✓ marketing: list_active_campaigns парсит dailyBudget")
 
 
 def test_dry_run_does_not_send_put():
@@ -272,6 +284,7 @@ def test_401_without_provider_raises():
 if __name__ == "__main__":
     test_get_products_parses_fields()
     test_list_active_campaigns_filters_enabled()
+    test_list_active_campaigns_parses_daily_budget()
     test_dry_run_does_not_send_put()
     test_live_put_sends_correct_request()
     test_get_retries_on_429()
