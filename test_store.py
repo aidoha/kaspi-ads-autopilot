@@ -143,6 +143,18 @@ def test_migration_adds_campaign_id_to_old_db():
     print("✓ store: миграция добавляет campaign_id в старую БД")
 
 
+def test_settings_audit():
+    st = new_store()
+    st.log_settings_change("admin", "min_bid", 1, 3, ts=1000)
+    st.log_settings_change("admin", "dry_run", True, False, ts=1001)
+    rows = st.get_settings_audit()
+    assert len(rows) == 2
+    assert rows[0]["field"] == "dry_run"          # свежие сверху (по ts DESC)
+    assert rows[0]["old"] == "True" and rows[0]["new"] == "False"
+    assert rows[1]["field"] == "min_bid"
+    print("✓ store: settings_audit пишет и читает правки конфига")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -152,5 +164,6 @@ if __name__ == "__main__":
     test_get_decisions_for_day()
     test_log_decision_writes_campaign_id()
     test_migration_adds_campaign_id_to_old_db()
+    test_settings_audit()
     print("-" * 60)
     print("✓ Все проверки store прошли")

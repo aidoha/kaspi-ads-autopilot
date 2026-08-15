@@ -61,6 +61,10 @@ class Store:
                 day TEXT, sku TEXT, tacos REAL, cost REAL, revenue REAL,
                 PRIMARY KEY (day, sku)
             );
+
+            CREATE TABLE IF NOT EXISTS settings_audit (
+                ts INTEGER, user TEXT, field TEXT, old TEXT, new TEXT
+            );
         """)
         # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
         cols = {r["name"] for r in
@@ -174,5 +178,22 @@ class Store:
         """Все решения за день по порядку — для дневного разбора LLM-аналитиком."""
         rows = self._conn.execute(
             "SELECT * FROM decisions_log WHERE day=? ORDER BY ts", (day,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ---- аудит настроек -----------------------------------------------------
+
+    def log_settings_change(self, user: str, field: str, old, new, ts: int):
+        """Логирование изменения настройки (для аудита UI)."""
+        self._conn.execute(
+            "INSERT INTO settings_audit (ts, user, field, old, new) VALUES (?,?,?,?,?)",
+            (ts, user, field, str(old), str(new)),
+        )
+        self._conn.commit()
+
+    def get_settings_audit(self, limit: int = 50) -> list[dict]:
+        """Получить аудит правок настроек (свежие сверху)."""
+        rows = self._conn.execute(
+            "SELECT * FROM settings_audit ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
