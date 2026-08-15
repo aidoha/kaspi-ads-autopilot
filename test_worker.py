@@ -182,6 +182,18 @@ def test_run_cycle_empty_is_noop():
     print("✓ worker: run_cycle с пустым списком — no-op")
 
 
+def test_run_cycle_passes_campaign_budget_to_fast_brake():
+    # cost_today=4000: под ФОЛБЭКОМ 3000 → пауза; но бюджет кампании 20000
+    # (лимит 50% = 10000) → НЕ пауза. Значит бюджет реально проброшен в тормоз.
+    st = store_with_revenue({"M1": SkuRevenue(merchant_sku="M1", revenue=5000)})
+    fm = FakeMarketing(
+        [cp(cost_today=4000, bid=18)], dry_run=True,
+        campaigns=[Campaign(id="2899523", name="Бритвы", state="Enabled", daily_budget=20000)])
+    decisions = run_cycle(ctx(fm, st, dry_run=True), loop="fast")
+    assert decisions[0].action == "hold", decisions[0].reason   # под фолбэком было бы pause
+    print("✓ worker: run_cycle пробрасывает бюджет кампании в тормоз (лимит от бюджета)")
+
+
 if __name__ == "__main__":
     test_dry_run_logs_but_no_put()
     test_live_run_sends_put_with_new_bid()
@@ -191,5 +203,6 @@ if __name__ == "__main__":
     test_run_cycle_allowlist_narrows()
     test_run_cycle_isolates_failing_campaign()
     test_run_cycle_empty_is_noop()
+    test_run_cycle_passes_campaign_budget_to_fast_brake()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

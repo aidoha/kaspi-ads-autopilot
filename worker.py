@@ -63,7 +63,8 @@ def run_revenue_cycle(ctx: WorkerContext):
 
 # ---- ставочный тик ---------------------------------------------------------
 
-def run_tick(ctx: WorkerContext, loop: str, campaign_id: str):
+def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
+             daily_budget: float = 0.0):
     """
     Один тик выбранного контура:
       read маркетинг → снапшот → выручка из кэша → reconcile → TACoS →
@@ -87,7 +88,7 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str):
         ctx.store.record_tacos(day, r.merchant_sku, r.tacos, r.cost, r.revenue)
 
     if loop == "fast":
-        decisions = evaluate_fast(reconciled, ctx.cfg, state)
+        decisions = evaluate_fast(reconciled, ctx.cfg, state, daily_budget)
     elif loop == "slow":
         decisions = evaluate_slow(reconciled, ctx.cfg, state)
     else:
@@ -121,7 +122,7 @@ def run_cycle(ctx: WorkerContext, loop: str):
     all_decisions: list = []
     for c in campaigns:
         try:
-            all_decisions.extend(run_tick(ctx, loop, c.id))
+            all_decisions.extend(run_tick(ctx, loop, c.id, daily_budget=c.daily_budget))
         except Exception as e:
             log.error("Кампания %s (%s) упала на контуре %s: %s",
                       c.id, c.name, loop, e)
