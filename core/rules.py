@@ -35,6 +35,7 @@ class RulesConfig:
     min_bid: float = 1
     min_score_for_raise: float = 4.0
     dry_run: bool = True
+    campaign_ids: list[str] | None = None   # allowlist кампаний; None/пусто = все активные
 
 
 @dataclass
