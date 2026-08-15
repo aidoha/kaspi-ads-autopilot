@@ -26,6 +26,7 @@ class RulesConfig:
     target_tacos_low: float = 0.08
     target_tacos_high: float = 0.15
     daily_sku_cost_limit: float = 3000
+    sku_budget_fraction: float = 0.5   # доля дневного бюджета кампании на один SKU
     min_clicks_for_no_cart_cut: int = 40
     cpc_spike_pct: float = 0.5
     max_bid_step: float = 2
@@ -95,25 +96,35 @@ def _stepped(s, direction: str, loop: str, reason: str, cfg: RulesConfig) -> Dec
 # ---- быстрый контур (только тормозит) -------------------------------------
 
 def evaluate_fast(
-    skus: list, cfg: RulesConfig | None = None, state: dict | None = None
+    skus: list, cfg: RulesConfig | None = None, state: dict | None = None,
+    daily_budget: float = 0.0,
 ) -> list[Decision]:
     cfg = cfg or RulesConfig()
     out: list[Decision] = []
     for s in skus:
-        out.append(_eval_fast_one(s, cfg, _state_for(state, s.sku)))
+        out.append(_eval_fast_one(s, cfg, _state_for(state, s.sku), daily_budget))
     return out
 
 
-def _eval_fast_one(s, cfg: RulesConfig, st: DailyState) -> Decision:
+def _eval_fast_one(s, cfg: RulesConfig, st: DailyState,
+                   daily_budget: float = 0.0) -> Decision:
     if s.product_state != "Active":
         return _hold(s, "fast", "товар не Active — ставку не трогаем")
 
     # Спенд-кап важнее лимита изменений: слив бюджета тормозим всегда.
-    # Эндпоинта «паузы» у кабинета нет — режем ставку в пол (min_bid), это и есть стоп.
-    if s.cost_today >= cfg.daily_sku_cost_limit:
+    # Лимит на SKU считаем от дневного бюджета кампании (dailyBudget из кабинета);
+    # если бюджет недоступен (0) — фолбэк на абсолютный daily_sku_cost_limit.
+    # Эндпоинта «паузы» нет — режем ставку в пол (min_bid), это и есть стоп.
+    if daily_budget > 0:
+        limit = daily_budget * cfg.sku_budget_fraction
+        src = f"{int(cfg.sku_budget_fraction * 100)}% бюджета {daily_budget:g}"
+    else:
+        limit = cfg.daily_sku_cost_limit
+        src = f"фолбэк-лимит {cfg.daily_sku_cost_limit:g}"
+    if s.cost_today >= limit:
         return Decision(s.sku, s.merchant_sku, s.bid, cfg.min_bid, "pause", "fast",
-                        f"costToday={s.cost_today} ≥ дневного лимита {cfg.daily_sku_cost_limit} "
-                        f"→ пауза (ставка в пол {cfg.min_bid})")
+                        f"costToday={s.cost_today:g} ≥ {src} = {limit:g} "
+                        f"→ пауза (ставка в пол {cfg.min_bid:g})")
 
     if st.changes_today >= cfg.max_changes_per_day:
         return _hold(s, "fast", f"исчерпан лимит изменений/сутки ({cfg.max_changes_per_day})")

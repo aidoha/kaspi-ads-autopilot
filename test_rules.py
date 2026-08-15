@@ -94,6 +94,25 @@ def test_change_limit_blocks_fast_cut():
     print("✓ предохранитель: исчерпан лимит изменений/сутки → hold")
 
 
+def test_fast_spend_cap_from_campaign_budget():
+    # бюджет 10000, доля 0.5 → лимит 5000
+    d = only(evaluate_fast([sr(cost_today=5100, bid=18)], CFG, daily_budget=10000))
+    assert d.action == "pause", d.reason
+    assert "бюджет" in d.reason, d.reason
+    # 4900 < 5000 → НЕ пауза (хотя это > фолбэка 3000 — значит взят бюджетный лимит)
+    d2 = only(evaluate_fast([sr(cost_today=4900, bid=18)], CFG, daily_budget=10000))
+    assert d2.action != "pause", d2.reason
+    print("✓ rules: спенд-кап считается от бюджета кампании (×0.5)")
+
+
+def test_fast_spend_cap_fallback_without_budget():
+    # daily_budget=0 → фолбэк на daily_sku_cost_limit (3000); 3500 ≥ 3000 → пауза
+    d = only(evaluate_fast([sr(cost_today=3500, bid=18)], CFG, daily_budget=0))
+    assert d.action == "pause", d.reason
+    assert "фолбэк" in d.reason or "3000" in d.reason, d.reason
+    print("✓ rules: без бюджета — фолбэк на абсолютный лимит")
+
+
 # ============ МЕДЛЕННЫЙ КОНТУР (по TACoS) ============
 
 def test_slow_in_corridor_holds():
@@ -167,6 +186,8 @@ if __name__ == "__main__":
         test_fast_cpc_spike_cuts,
         test_fast_never_raises,
         test_change_limit_blocks_fast_cut,
+        test_fast_spend_cap_from_campaign_budget,
+        test_fast_spend_cap_fallback_without_budget,
         test_slow_in_corridor_holds,
         test_slow_below_corridor_raises,
         test_slow_above_corridor_lowers,
