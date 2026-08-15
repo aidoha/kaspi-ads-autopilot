@@ -150,3 +150,107 @@ sudo systemctl restart kaspi-autopilot
 - **Сессия** `storage_state.json` обновляется сама (по таймстампу и через
   self-heal на 401). Если кабинет сменил пароль — обнови `.env` и перезапусти.
 - **Стоп:** `sudo systemctl stop kaspi-autopilot`.
+
+## 10. Веб-панель (UI)
+
+Опциональный модуль управления настройками и мониторинга. UI слушает только `127.0.0.1:8000`;
+наружу смотрит только через Caddy (TLS). Прямой доступ к порту 8000 закрыт.
+
+### 10.1. Установить Caddy
+
+```bash
+sudo apt install caddy
+```
+
+Caddy будет автоматически получать Let's Encrypt сертификаты и перезагружаться
+при их обновлении.
+
+### 10.2. Конфиг Caddy
+
+Откройте `/etc/caddy/Caddyfile` и замените содержимое:
+
+```
+# замени cloud-001.h-161398.kz на свой домен/хостнейм, указывающий на VPS
+cloud-001.h-161398.kz {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Если публичного домена нет, используй самоподписанный сертификат:
+
+```
+:443 {
+    tls internal
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Перезапустите Caddy:
+
+```bash
+sudo systemctl restart caddy
+```
+
+### 10.3. Секреты UI в конфиге
+
+В `config/.env` добавьте две переменные:
+
+```bash
+# Сгенерируйте оба значения на доверенной машине:
+# python3 -c "from passlib.context import CryptContext; c = CryptContext(schemes=['bcrypt']); print(c.hash('пароль'))"
+UI_PASSWORD_HASH=<bcrypt-хеш-пароля>
+UI_SECRET_KEY=<32-символьная-случайная-строка>
+```
+
+Пример генерации:
+
+```bash
+# пароль → bcrypt-хеш
+python3 -c "from passlib.context import CryptContext; c = CryptContext(schemes=['bcrypt']); print(c.hash('my_secure_password'))"
+
+# случайный секрет (32 символа)
+python3 -c "import secrets; print(secrets.token_hex(16))"
+```
+
+### 10.4. Установить systemd-юнит
+
+```bash
+sudo cp /opt/kaspi-ads-autopilot/deploy/kaspi-webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now kaspi-webui
+```
+
+### 10.5. Открыть порты (UFW)
+
+```bash
+sudo ufw allow 80/tcp    # HTTP (Caddy перенаправит на HTTPS)
+sudo ufw allow 443/tcp   # HTTPS
+# SSH обычно уже открыт; если нет:
+# sudo ufw allow 22/tcp
+```
+
+### 10.6. Проверка
+
+```bash
+# 1. Убедитесь, что сервис запущен:
+sudo systemctl status kaspi-webui
+journalctl -u kaspi-webui -f
+
+# 2. Откройте в браузере:
+https://cloud-001.h-161398.kz/login   # замени на свой домен
+
+# 3. Введите username (по умолчанию "admin") и пароль (из UI_PASSWORD_HASH).
+#    Если логин успешен, откроется дашборд.
+
+# 4. На дашборде видны решения воркера за день, текущие ставки и история
+#    изменений параметров.
+```
+
+### 10.7. Обслуживание
+
+- **Логи UI:** `journalctl -u kaspi-webui -f`
+- **Логи Caddy:** `journalctl -u caddy -f` (или `sudo caddy reload` для перезагрузки конфига без downtime)
+- **Если пароль забыли:** переправьте `UI_PASSWORD_HASH` в `.env` на новый хеш и перезапустите:
+  ```bash
+  sudo systemctl restart kaspi-webui
+  ```

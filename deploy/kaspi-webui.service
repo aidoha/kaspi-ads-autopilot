@@ -1,0 +1,20 @@
+# Веб-панель управления биддером (uvicorn за Caddy).
+#   sudo cp deploy/kaspi-webui.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now kaspi-webui
+[Unit]
+Description=Kaspi Bidder Web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaspi
+WorkingDirectory=/opt/kaspi-ads-autopilot
+Environment=ENV_FILE=/opt/kaspi-ads-autopilot/config/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/kaspi-ads-autopilot/.venv/bin/uvicorn webui.app:create_app --factory --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
