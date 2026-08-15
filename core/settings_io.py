@@ -2,6 +2,7 @@
 UI пишет через эти функции; воркер читает тот же файл через load_rules_config."""
 from __future__ import annotations
 
+import math
 import os
 
 from core.rules import RulesConfig, load_rules_config
@@ -28,7 +29,11 @@ def validate_settings(data: dict) -> list[str]:
     errs: list[str] = []
     def num(name):
         try:
-            return float(data.get(name))
+            v = float(data.get(name))
+            if not math.isfinite(v):
+                errs.append(f"{name}: не конечное число")
+                return None
+            return v
         except (TypeError, ValueError):
             errs.append(f"{name}: не число")
             return None
@@ -70,6 +75,8 @@ def save_settings(path: str, data: dict) -> None:
     if errs:
         raise ValueError("; ".join(errs))
     # нормализация типов
+    dr = data.get("dry_run", True)
+    dry_run_normalized = dr if isinstance(dr, bool) else str(dr).strip().lower() in ("1", "true", "yes", "on")
     out = {
         "target_tacos_low": float(data["target_tacos_low"]),
         "target_tacos_high": float(data["target_tacos_high"]),
@@ -82,7 +89,7 @@ def save_settings(path: str, data: dict) -> None:
         "bid_ceiling": float(data["bid_ceiling"]),
         "min_bid": float(data["min_bid"]),
         "min_score_for_raise": float(data["min_score_for_raise"]),
-        "dry_run": bool(data["dry_run"]),
+        "dry_run": dry_run_normalized,
         "campaign_ids": list(data["campaign_ids"]) if data.get("campaign_ids") else None,
     }
     tmp = f"{path}.tmp"
