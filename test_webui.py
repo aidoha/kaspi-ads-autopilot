@@ -80,11 +80,31 @@ def test_dry_run_toggle():
     print("✓ webui: тумблер dry_run пишет конфиг")
 
 
+def test_settings_save_does_not_touch_dry_run():
+    """Форма /settings НЕ шлёт поле dry_run (оно живёт в отдельной форме /dry-run).
+    Регрессия: раньше form.get("dry_run") == "on" на отсутствующем поле давал False
+    и молча выключал dry_run на КАЖДОМ сохранении настроек — воркер уходил в live
+    и начинал тратить реальные деньги без ведома владельца."""
+    c, rules = _client()
+    c.post("/login", data={"username": "admin", "password": "secret"})
+    assert load_rules_config(rules).dry_run is True  # дефолт RulesConfig
+    data = load_settings(rules)
+    form = {k: data[k] for k in SETTINGS_FIELDS if k not in ("dry_run", "campaign_ids")}
+    form["bid_ceiling"] = 45  # валидная правка, не связанная с dry_run
+    r = c.post("/settings", data=form, follow_redirects=False)
+    assert r.status_code in (302, 303), r.text
+    cfg = load_rules_config(rules)
+    assert cfg.bid_ceiling == 45
+    assert cfg.dry_run is True   # dry_run НЕ должен был измениться
+    print("✓ webui: POST /settings не трогает dry_run")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
     test_login_and_edit_settings()
     test_invalid_settings_rejected()
     test_dry_run_toggle()
+    test_settings_save_does_not_touch_dry_run()
     print("-" * 60)
     print("✓ Все проверки webui прошли")

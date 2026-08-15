@@ -28,8 +28,15 @@ def create_app() -> FastAPI:
         pass
 
     app = FastAPI()
-    app.add_middleware(SessionMiddleware,
-                       secret_key=os.environ.get("UI_SECRET_KEY", "dev-insecure"))
+
+    # Секрет сессий обязателен: без него SessionMiddleware подписывал бы куки
+    # публичным дефолтом — любой мог бы подделать {"user": "admin"} и обойти логин
+    # в панели, которая управляет реальным рекламным бюджетом. Отказываем сразу.
+    secret = os.environ.get("UI_SECRET_KEY") or ""
+    if not secret:
+        raise RuntimeError("UI_SECRET_KEY не задан — сгенерируй секрет и внеси в .env")
+    app.add_middleware(SessionMiddleware, secret_key=secret)
+
     app.mount("/static", StaticFiles(directory=os.path.join(_HERE, "static")), name="static")
     templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
     templates.env.filters["dt"] = lambda ts: (
@@ -42,6 +49,13 @@ def create_app() -> FastAPI:
 
     def user(request: Request):
         return request.session.get("user")
+
+    def _settings_audit() -> list[dict]:
+        store = Store(db_path)
+        try:
+            return store.get_settings_audit()
+        finally:
+            store.close()
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
@@ -77,7 +91,7 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse("settings.html", {
             "request": request, "user": user(request),
             "s": load_settings(rules_path), "fields": SETTINGS_FIELDS, "errors": [],
-            "audit": Store(db_path).get_settings_audit()})
+            "audit": _settings_audit()})
 
     @app.post("/settings")
     async def settings_save(request: Request):
@@ -88,7 +102,7 @@ def create_app() -> FastAPI:
         new = dict(cur)
         for f in SETTINGS_FIELDS:
             if f == "dry_run":
-                new[f] = form.get("dry_run") == "on"
+                continue  # dry_run — только через POST /dry-run, не трогаем при сохранении настроек
             elif f == "campaign_ids":
                 raw = (form.get("campaign_ids") or "").strip()
                 new[f] = [x.strip() for x in raw.split(",") if x.strip()] or None
@@ -99,12 +113,17 @@ def create_app() -> FastAPI:
             return templates.TemplateResponse("settings.html", {
                 "request": request, "user": user(request),
                 "s": new, "fields": SETTINGS_FIELDS, "errors": errors,
-                "audit": Store(db_path).get_settings_audit()}, status_code=200)
+                "audit": _settings_audit()}, status_code=200)
         store = Store(db_path)
-        ts = int(time.time())
-        for f in SETTINGS_FIELDS:
-            if str(cur.get(f)) != str(new.get(f)):
-                store.log_settings_change(user(request), f, cur.get(f), new.get(f), ts)
+        try:
+            ts = int(time.time())
+            for f in SETTINGS_FIELDS:
+                if f == "dry_run":
+                    continue
+                if str(cur.get(f)) != str(new.get(f)):
+                    store.log_settings_change(user(request), f, cur.get(f), new.get(f), ts)
+        finally:
+            store.close()
         save_settings(rules_path, new)
         return RedirectResponse("/settings", status_code=303)
 
@@ -114,10 +133,16 @@ def create_app() -> FastAPI:
             return RedirectResponse("/login", status_code=303)
         form = await request.form()
         cur = load_settings(rules_path)
-        cur["dry_run"] = form.get("dry_run") == "on"
-        save_settings(rules_path, cur)
-        Store(db_path).log_settings_change(user(request), "dry_run",
-                                           not cur["dry_run"], cur["dry_run"], int(time.time()))
+        old = cur["dry_run"]
+        new_val = form.get("dry_run") == "on"
+        if new_val != old:
+            cur["dry_run"] = new_val
+            save_settings(rules_path, cur)
+            store = Store(db_path)
+            try:
+                store.log_settings_change(user(request), "dry_run", old, new_val, int(time.time()))
+            finally:
+                store.close()
         return RedirectResponse("/settings", status_code=303)
 
     return app
