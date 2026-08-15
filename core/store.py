@@ -13,6 +13,7 @@ store.py — SQLite-персистенция воркера (stdlib sqlite3, б�
 
 from __future__ import annotations
 
+import os
 import sqlite3
 
 from connectors.marketing_client import CampaignProduct
@@ -23,6 +24,11 @@ from core.rules import Decision, DailyState
 class Store:
     def __init__(self, path: str):
         self.path = path
+        # Каталог БД может отсутствовать (git не хранит пустые папки → на свежем
+        # клоне db/ нет). Создаём, иначе sqlite: "unable to open database file".
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
