@@ -116,7 +116,7 @@ def create_app() -> FastAPI:
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
-        return templates.TemplateResponse("login.html", {"request": request, "error": None})
+        return templates.TemplateResponse(request, "login.html", {"error": None})
 
     @app.post("/login")
     def login(request: Request, username_in: str = Form(alias="username"),
@@ -126,7 +126,7 @@ def create_app() -> FastAPI:
             return RedirectResponse("/settings", status_code=303)
         log.warning("Неудачный вход в веб-панель (username=%s)", username_in)
         return templates.TemplateResponse(
-            "login.html", {"request": request, "error": "Неверный логин или пароль"},
+            request, "login.html", {"error": "Неверный логин или пароль"},
             status_code=200)
 
     @app.post("/logout")
@@ -151,16 +151,16 @@ def create_app() -> FastAPI:
         finally:
             store.close()
         budgets = _get_campaign_budgets()
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request, "user": user(request), "day": day,
+        return templates.TemplateResponse(request, "dashboard.html", {
+            "user": user(request), "day": day,
             "decisions": decisions, "tacos": tacos_rows, "budgets": budgets})
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_form(request: Request):
         if not user(request):
             return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse("settings.html", {
-            "request": request, "user": user(request),
+        return templates.TemplateResponse(request, "settings.html", {
+            "user": user(request),
             "s": load_settings(rules_path), "fields": SETTINGS_FIELDS, "errors": [],
             "audit": _settings_audit()})
 
@@ -181,8 +181,8 @@ def create_app() -> FastAPI:
                 new[f] = form.get(f)
         errors = validate_settings(new)
         if errors:
-            return templates.TemplateResponse("settings.html", {
-                "request": request, "user": user(request),
+            return templates.TemplateResponse(request, "settings.html", {
+                "user": user(request),
                 "s": new, "fields": SETTINGS_FIELDS, "errors": errors,
                 "audit": _settings_audit()}, status_code=200)
         store = Store(db_path)
