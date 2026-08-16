@@ -193,23 +193,27 @@ sudo systemctl restart caddy
 
 ### 10.3. Секреты UI в конфиге
 
-В `config/.env` добавьте две переменные:
+В `config/.env` добавьте две переменные. ВАЖНО: хэш пароля генерируется ТОЛЬКО
+через `webui.auth.hash_password` (stdlib pbkdf2) — панель проверяет пароль этим
+же форматом. НЕ используй passlib/bcrypt: такой хэш панель не поймёт, и вход не
+пройдёт.
 
 ```bash
-# Сгенерируйте оба значения на доверенной машине:
-# python3 -c "from passlib.context import CryptContext; c = CryptContext(schemes=['bcrypt']); print(c.hash('пароль'))"
-UI_PASSWORD_HASH=<bcrypt-хеш-пароля>
-UI_SECRET_KEY=<32-символьная-случайная-строка>
+cd /opt/kaspi-ads-autopilot
+
+# пароль → pbkdf2-хэш (формат pbkdf2$iters$salt$dk)
+.venv/bin/python -c "from webui.auth import hash_password; print(hash_password('ТВОЙ_ПАРОЛЬ'))"
+
+# случайный секрет сессии (64 hex-символа)
+.venv/bin/python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Пример генерации:
+Впиши результаты в `config/.env`:
 
-```bash
-# пароль → bcrypt-хеш
-python3 -c "from passlib.context import CryptContext; c = CryptContext(schemes=['bcrypt']); print(c.hash('my_secure_password'))"
-
-# случайный секрет (32 символа)
-python3 -c "import secrets; print(secrets.token_hex(16))"
+```
+UI_USERNAME=admin
+UI_PASSWORD_HASH=<вывод hash_password>
+UI_SECRET_KEY=<вывод token_hex>
 ```
 
 ### 10.4. Установить systemd-юнит
