@@ -88,7 +88,11 @@ def create_app() -> FastAPI:
     secret = os.environ.get("UI_SECRET_KEY") or ""
     if not secret:
         raise RuntimeError("UI_SECRET_KEY не задан — сгенерируй секрет и внеси в .env")
-    app.add_middleware(SessionMiddleware, secret_key=secret)
+    # https_only: панель торчит в интернет (за Caddy) — без Secure-флага случайный
+    # http:// заход слил бы подписанную куку сессии ДО редиректа на https. max_age
+    # короче дефолтных 14 дней Starlette — деньги, не забытый логин на форуме.
+    app.add_middleware(SessionMiddleware, secret_key=secret,
+                       https_only=True, max_age=60 * 60 * 8)
 
     app.mount("/static", StaticFiles(directory=os.path.join(_HERE, "static")), name="static")
     templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
@@ -120,6 +124,7 @@ def create_app() -> FastAPI:
         if username_in == username and pw_hash and verify_password(password, pw_hash):
             request.session["user"] = username_in
             return RedirectResponse("/settings", status_code=303)
+        log.warning("Неудачный вход в веб-панель (username=%s)", username_in)
         return templates.TemplateResponse(
             "login.html", {"request": request, "error": "Неверный логин или пароль"},
             status_code=200)

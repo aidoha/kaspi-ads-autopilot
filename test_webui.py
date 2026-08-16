@@ -22,7 +22,10 @@ def _client():
         RULES_CONFIG=rules, DB_PATH=db, ENV_FILE=empty_env,
     )
     app = create_app()
-    return TestClient(app), rules
+    # base_url=https: SessionMiddleware теперь https_only=True (Secure-кука) — в
+    # проде это TLS-терминация Caddy; на "http://testserver" httpx-клиент честно
+    # не отправил бы Secure-куку обратно, и все "залогинен" проверки бы падали.
+    return TestClient(app, base_url="https://testserver"), rules
 
 
 def test_password_hash_roundtrip():
