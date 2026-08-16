@@ -65,6 +65,12 @@ class Store:
             CREATE TABLE IF NOT EXISTS settings_audit (
                 ts INTEGER, user TEXT, field TEXT, old TEXT, new TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS config_overrides (
+                scope TEXT, scope_id TEXT, field TEXT, value TEXT,
+                user TEXT, ts INTEGER,
+                PRIMARY KEY (scope, scope_id, field)
+            );
         """)
         # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
         cols = {r["name"] for r in
@@ -205,3 +211,30 @@ class Store:
             "SELECT * FROM settings_audit ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- overrides конфига (кампания/товар) ---------------------------------
+
+    def get_overrides(self, scope: str, scope_id: str) -> dict[str, str]:
+        rows = self._conn.execute(
+            "SELECT field, value FROM config_overrides WHERE scope=? AND scope_id=?",
+            (scope, scope_id),
+        ).fetchall()
+        return {r["field"]: r["value"] for r in rows}
+
+    def set_override(self, scope: str, scope_id: str, field: str,
+                     value: str, user: str, ts: int) -> None:
+        self._conn.execute(
+            """INSERT INTO config_overrides (scope, scope_id, field, value, user, ts)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(scope, scope_id, field) DO UPDATE SET
+                 value=excluded.value, user=excluded.user, ts=excluded.ts""",
+            (scope, scope_id, field, str(value), user, ts),
+        )
+        self._conn.commit()
+
+    def delete_override(self, scope: str, scope_id: str, field: str) -> None:
+        self._conn.execute(
+            "DELETE FROM config_overrides WHERE scope=? AND scope_id=? AND field=?",
+            (scope, scope_id, field),
+        )
+        self._conn.commit()

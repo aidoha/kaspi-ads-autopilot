@@ -165,6 +165,31 @@ def test_settings_audit():
     print("✓ store: settings_audit пишет и читает правки конфига")
 
 
+def test_config_overrides_crud():
+    import tempfile, os
+    p = os.path.join(tempfile.mkdtemp(), "t.db")
+    st = Store(p)
+    try:
+        assert st.get_overrides("campaign", "2899523") == {}
+        st.set_override("campaign", "2899523", "bid_ceiling", "80", "admin", 111)
+        st.set_override("campaign", "2899523", "min_bid", "5", "admin", 111)
+        assert st.get_overrides("campaign", "2899523") == {"bid_ceiling": "80", "min_bid": "5"}
+        # upsert перезаписывает
+        st.set_override("campaign", "2899523", "bid_ceiling", "90", "admin", 222)
+        assert st.get_overrides("campaign", "2899523")["bid_ceiling"] == "90"
+        # разные scope изолированы
+        st.set_override("sku", "SKU-1", "bid_ceiling", "40", "admin", 111)
+        assert st.get_overrides("sku", "SKU-1") == {"bid_ceiling": "40"}
+        assert st.get_overrides("campaign", "2899523")["bid_ceiling"] == "90"
+        # delete
+        st.delete_override("campaign", "2899523", "bid_ceiling")
+        assert st.get_overrides("campaign", "2899523") == {"min_bid": "5"}
+        st.delete_override("campaign", "2899523", "nope")  # no-op не падает
+    finally:
+        st.close()
+    print("✓ store: config_overrides CRUD")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -176,5 +201,6 @@ if __name__ == "__main__":
     test_log_decision_writes_campaign_id()
     test_migration_adds_campaign_id_to_old_db()
     test_settings_audit()
+    test_config_overrides_crud()
     print("-" * 60)
     print("✓ Все проверки store прошли")
