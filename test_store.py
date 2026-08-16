@@ -190,6 +190,35 @@ def test_config_overrides_crud():
     print("✓ store: config_overrides CRUD")
 
 
+def _mk_product(sku, merchant_sku="m", bid=10.0):
+    from connectors.marketing_client import CampaignProduct
+    return CampaignProduct(
+        sku=sku, merchant_sku=merchant_sku, campaign_product_id=0,
+        bid=bid, avg_cpc=1.0, score=5.0, buy_box=False, product_state="Active",
+        cost=0.0, cost_today=0.0, gmv=0.0, crr=0.0, cr=0.0, ctr=0.0,
+        views=0, clicks=0, carts=0, transactions=0, price=100.0)
+
+
+def test_snapshot_campaign_id_and_lists():
+    import tempfile, os
+    p = os.path.join(tempfile.mkdtemp(), "t.db")
+    st = Store(p)
+    try:
+        st.save_products_snapshot([_mk_product("A", bid=10), _mk_product("B", bid=20)],
+                                  ts=100, campaign_id="C1")
+        st.save_products_snapshot([_mk_product("A", bid=15)], ts=200, campaign_id="C1")
+        st.save_products_snapshot([_mk_product("Z", bid=99)], ts=150, campaign_id="C2")
+        skus = st.get_campaign_skus("C1")
+        by = {r["sku"]: r for r in skus}
+        assert set(by) == {"A", "B"}, by
+        assert by["A"]["bid"] == 15  # свежий снапшот A
+        assert st.get_latest_snapshot_ts() == 200
+        assert {r["sku"] for r in st.get_campaign_skus("C2")} == {"Z"}
+    finally:
+        st.close()
+    print("✓ store: campaign_id в снапшотах + get_campaign_skus/get_latest_snapshot_ts")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -202,5 +231,6 @@ if __name__ == "__main__":
     test_migration_adds_campaign_id_to_old_db()
     test_settings_audit()
     test_config_overrides_crud()
+    test_snapshot_campaign_id_and_lists()
     print("-" * 60)
     print("✓ Все проверки store прошли")
