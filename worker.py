@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from core.config_resolver import resolve_config
 from core.reconcile import reconcile
 from core.rules import RulesConfig, evaluate_fast, evaluate_slow
 
@@ -79,7 +80,7 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
 
     # Состояние берём ДО записи нового снапшота — так prev_avg_cpc = прошлый снимок.
     state = ctx.store.build_daily_state([p.sku for p in products], day)
-    ctx.store.save_products_snapshot(products, ts)
+    ctx.store.save_products_snapshot(products, ts, campaign_id=campaign_id)
 
     revenue = ctx.store.get_revenue_cache()
     reconciled = reconcile(products, revenue)
@@ -87,10 +88,16 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
     for r in reconciled:
         ctx.store.record_tacos(day, r.merchant_sku, r.tacos, r.cost, r.revenue)
 
+    # Эффективный конфиг на SKU: глобал → оверрайды кампании → оверрайды SKU.
+    camp_ov = ctx.store.get_overrides("campaign", campaign_id)
+
+    def cfg_for(s):
+        return resolve_config(ctx.cfg, camp_ov, ctx.store.get_overrides("sku", s.sku))
+
     if loop == "fast":
-        decisions = evaluate_fast(reconciled, ctx.cfg, state, daily_budget)
+        decisions = evaluate_fast(reconciled, cfg_for, state, daily_budget)
     elif loop == "slow":
-        decisions = evaluate_slow(reconciled, ctx.cfg, state)
+        decisions = evaluate_slow(reconciled, cfg_for, state)
     else:
         raise ValueError(f"неизвестный контур: {loop}")
 
