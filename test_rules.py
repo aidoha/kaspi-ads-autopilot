@@ -164,6 +164,18 @@ def test_slow_paused_product_holds():
     print("✓ slow: товар не Active → держим")
 
 
+def test_evaluate_fast_accepts_cfg_callable():
+    # два SKU: у каждого свой резолвер конфига (per-SKU шаг снижения ставки)
+    a = sr(sku="A", carts=0, clicks=100, bid=10, product_state="Active")
+    b = sr(sku="B", carts=0, clicks=100, bid=10, product_state="Active")
+    cfgs = {"A": RulesConfig(max_bid_step=2), "B": RulesConfig(max_bid_step=5)}
+    out = {d.sku: d for d in evaluate_fast([a, b], cfg=lambda s: cfgs[s.sku])}
+    # оба режут ставку (0 корзин при 100 кликах), но на свой шаг
+    assert out["A"].new_bid == 8   # 10 - 2
+    assert out["B"].new_bid == 5   # 10 - 5
+    print("✓ rules: evaluate_fast принимает cfg-резолвер (per-SKU)")
+
+
 # ============ ЗАГРУЗКА КОНФИГА ============
 
 def test_load_rules_config_reads_yaml():
@@ -188,6 +200,7 @@ if __name__ == "__main__":
         test_change_limit_blocks_fast_cut,
         test_fast_spend_cap_from_campaign_budget,
         test_fast_spend_cap_fallback_without_budget,
+        test_evaluate_fast_accepts_cfg_callable,
         test_slow_in_corridor_holds,
         test_slow_below_corridor_raises,
         test_slow_above_corridor_lowers,
