@@ -183,6 +183,41 @@ input[type="password"]:focus {
   max-width: none;
 }
 
+/* ---- наследование настроек (кампания/товар) ---- */
+
+.badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  margin-left: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
+.badge-inherited {
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+}
+
+.badge-own {
+  background: rgba(79, 140, 255, 0.15);
+  color: var(--accent-hover);
+  border: 1px solid var(--accent);
+}
+
+.inherit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 400;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
 .actions {
   margin-top: 1.25rem;
   display: flex;

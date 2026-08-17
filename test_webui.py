@@ -28,6 +28,12 @@ def _client():
     return TestClient(app, base_url="https://testserver"), rules
 
 
+def _client_logged_in():
+    c, rules = _client()
+    c.post("/login", data={"username": "admin", "password": "secret"})
+    return c, rules, os.environ["DB_PATH"]
+
+
 def test_password_hash_roundtrip():
     h = hash_password("secret")
     assert verify_password("secret", h) and not verify_password("wrong", h)
@@ -120,6 +126,28 @@ def test_dashboard_shows_decisions_from_db():
     print("✓ webui: дашборд показывает решения из БД")
 
 
+def test_campaign_settings_get_and_save():
+    client, rules, db_path = _client_logged_in()
+    # GET показывает форму с эффективными (глобальными) значениями
+    r = client.get("/settings/campaign/C1")
+    assert r.status_code == 200
+    assert "bid_ceiling" in r.text
+    # POST: задаём override bid_ceiling=80 (флаг наследования снят)
+    r = client.post("/settings/campaign/C1",
+                    data={"bid_ceiling": "80"}, follow_redirects=False)
+    assert r.status_code in (303, 302)
+    from core.store import Store
+    st = Store(db_path)
+    assert st.get_overrides("campaign", "C1").get("bid_ceiling") == "80"
+    # POST со снятым override (inherit) удаляет строку
+    r = client.post("/settings/campaign/C1",
+                    data={"bid_ceiling": "80", "bid_ceiling__inherit": "on"},
+                    follow_redirects=False)
+    assert "bid_ceiling" not in st.get_overrides("campaign", "C1")
+    st.close()
+    print("✓ webui: настройки кампании — GET форма + POST override/сброс")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -128,5 +156,6 @@ if __name__ == "__main__":
     test_dry_run_toggle()
     test_settings_save_does_not_touch_dry_run()
     test_dashboard_shows_decisions_from_db()
+    test_campaign_settings_get_and_save()
     print("-" * 60)
     print("✓ Все проверки webui прошли")

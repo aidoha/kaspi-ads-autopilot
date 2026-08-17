@@ -82,6 +82,7 @@
         <th>ID кампании</th>
         <th>Название</th>
         <th>Дневной бюджет, ₸</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -90,6 +91,7 @@
         <td>{{ id }}</td>
         <td>{{ b.name }}</td>
         <td>{{ "%.0f"|format(b.daily_budget) if b.daily_budget else "не задан" }}</td>
+        <td><a href="/settings/campaign/{{ id }}">Настройки кампании</a></td>
       </tr>
       {% endfor %}
     </tbody>

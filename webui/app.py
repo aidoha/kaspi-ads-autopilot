@@ -14,6 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from core.config_resolver import resolve_config, OVERRIDABLE_FIELDS
+from core.rules import load_rules_config
 from core.settings_io import load_settings, save_settings, validate_settings, SETTINGS_FIELDS
 from core.store import Store
 from webui.auth import verify_password
@@ -197,6 +199,109 @@ def create_app() -> FastAPI:
             store.close()
         save_settings(rules_path, new)
         return RedirectResponse("/settings", status_code=303)
+
+    def _effective_and_flags(campaign_id: str, sku: str | None):
+        """Эффективные значения переопределяемых полей (глобал → кампания → SKU)
+        и множество полей, переопределённых НА ЭТОМ уровне (для бейджа «своё»).
+        sku=None → уровень кампании; иначе — уровень товара (наследует кампанию).
+        Общий хелпер для страниц настроек кампании (Task 6) и товара (Task 7)."""
+        store = Store(db_path)
+        try:
+            g = load_rules_config(rules_path)
+            camp_ov = store.get_overrides("campaign", campaign_id)
+            if sku is None:
+                eff = resolve_config(g, camp_ov, {})
+                owned = set(camp_ov)
+            else:
+                sku_ov = store.get_overrides("sku", sku)
+                eff = resolve_config(g, camp_ov, sku_ov)
+                owned = set(sku_ov)
+        finally:
+            store.close()
+        values = {f: getattr(eff, f) for f in OVERRIDABLE_FIELDS}
+        return values, owned
+
+    def _save_overrides(request: Request, scope: str, scope_id: str, form,
+                        base_sku: str | None, base_campaign: str):
+        """Сохраняет overrides уровня `scope` (campaign|sku) для `scope_id` из
+        данных формы: поле с галкой «{field}__inherit» = наследовать (override
+        удаляется); непустое значение без галки = своё (override пишется).
+        Перед записью валидирует ЭФФЕКТИВНЫЙ конфиг (кросс-полевые проверки вроде
+        bid_ceiling >= min_bid) — если невалидно, возвращает TemplateResponse с
+        ошибками вместо None (вызывающий роут решает, что делать с результатом).
+        Общий хелпер для Task 6 (кампания) и Task 7 (товар)."""
+        store = Store(db_path)
+        try:
+            g = load_rules_config(rules_path)
+            camp_ov = store.get_overrides("campaign", base_campaign)
+            # Собираем предполагаемые overrides этого уровня из формы:
+            proposed = {}
+            for f in OVERRIDABLE_FIELDS:
+                if form.get(f"{f}__inherit") == "on":
+                    continue  # наследовать → нет override
+                raw = (form.get(f) or "").strip()
+                if raw != "":
+                    proposed[f] = raw
+            # Эффективный конфиг для валидации (кросс-поля: ceiling>=min_bid и т.п.):
+            if scope == "campaign":
+                eff = resolve_config(g, proposed, {})
+            else:
+                eff = resolve_config(g, camp_ov, proposed)
+            errs = validate_settings({f: getattr(eff, f) for f in SETTINGS_FIELDS})
+            if errs:
+                # Перерисуем форму с ошибками (значения — из формы/эффективные).
+                values = {f: getattr(eff, f) for f in OVERRIDABLE_FIELDS}
+                tpl = "campaign_settings.html" if scope == "campaign" else "sku_settings.html"
+                extra = {"campaign_id": base_campaign, "owned": set(proposed)}
+                if scope == "sku":
+                    extra["sku"] = base_sku
+                else:
+                    extra["skus"] = store.get_campaign_skus(base_campaign)
+                return templates.TemplateResponse(request, tpl, {
+                    "user": user(request), "fields": OVERRIDABLE_FIELDS,
+                    "values": values, "errors": errs, **extra}, status_code=200)
+            # Применяем: set для proposed, delete для остального (наследовать).
+            existing = store.get_overrides(scope, scope_id)
+            ts = int(time.time())
+            for f in OVERRIDABLE_FIELDS:
+                if f in proposed:
+                    old = existing.get(f)
+                    store.set_override(scope, scope_id, f, proposed[f], user(request), ts)
+                    if str(old) != str(proposed[f]):
+                        store.log_settings_change(
+                            user(request), f"{scope}:{scope_id}:{f}", old, proposed[f], ts)
+                elif f in existing:
+                    store.delete_override(scope, scope_id, f)
+                    store.log_settings_change(
+                        user(request), f"{scope}:{scope_id}:{f}", "override", "inherit", ts)
+        finally:
+            store.close()
+        return None
+
+    @app.get("/settings/campaign/{campaign_id}", response_class=HTMLResponse)
+    def campaign_settings_form(request: Request, campaign_id: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        values, owned = _effective_and_flags(campaign_id, None)
+        store = Store(db_path)
+        try:
+            skus = store.get_campaign_skus(campaign_id)
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "campaign_settings.html", {
+            "user": user(request), "campaign_id": campaign_id,
+            "fields": OVERRIDABLE_FIELDS, "values": values, "owned": owned,
+            "skus": skus, "errors": []})
+
+    @app.post("/settings/campaign/{campaign_id}")
+    async def campaign_settings_save(request: Request, campaign_id: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        form = await request.form()
+        resp = _save_overrides(request, "campaign", campaign_id, form,
+                               base_sku=None, base_campaign=campaign_id)
+        return resp or RedirectResponse(
+            f"/settings/campaign/{campaign_id}", status_code=303)
 
     @app.post("/dry-run")
     async def dry_run_toggle(request: Request):

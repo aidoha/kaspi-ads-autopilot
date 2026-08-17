@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Настройки кампании {{ campaign_id }} — Kaspi Ads Autopilot{% endblock %}
+{% block content %}
+
+{% set field_meta = {
+  'target_tacos_low': {'label': 'TACoS — нижняя граница', 'hint': 'Доля расходов на рекламу от выручки (0–1). Ниже этой границы ставка считается заниженной — движок будет её поднимать (медленный контур, по окупаемости).'},
+  'target_tacos_high': {'label': 'TACoS — верхняя граница', 'hint': 'Доля расходов на рекламу от выручки (0–1). Выше этой границы реклама не окупается — движок снижает ставку.'},
+  'daily_sku_cost_limit': {'label': 'Дневной лимит расхода на SKU, ₸', 'hint': 'Максимальный расход на один товар в сутки. При достижении — снижение ставки.'},
+  'sku_budget_fraction': {'label': 'Доля бюджета кампании на SKU', 'hint': 'Какую часть дневного бюджета кампании может занять один товар (0–1].'},
+  'min_clicks_for_no_cart_cut': {'label': 'Мин. кликов для отсечки без корзин', 'hint': 'Если по товару набралось столько кликов, а добавлений в корзину нет — сработает защитное снижение ставки (быстрый контур).'},
+  'cpc_spike_pct': {'label': 'Порог скачка CPC', 'hint': 'Рост среднего CPC к предыдущему замеру, после которого срабатывает защитное снижение. 0.5 значит «+50%».'},
+  'max_bid_step': {'label': 'Макс. шаг изменения ставки, ₸', 'hint': 'На сколько тенге ставка может измениться за одно решение движка.'},
+  'max_changes_per_day': {'label': 'Макс. изменений ставки в сутки', 'hint': 'Ограничение числа правок ставки на один товар в течение дня.'},
+  'bid_ceiling': {'label': 'Потолок ставки, ₸', 'hint': 'Верхняя граница ставки — выше движок не поднимет.'},
+  'min_bid': {'label': 'Минимальная ставка, ₸', 'hint': 'Нижняя граница ставки. Используется вместо паузы — у кабинета маркетинга нет эндпоинта паузы.'},
+  'min_score_for_raise': {'label': 'Мин. score для повышения', 'hint': 'Минимальный показатель эффективности товара, при котором движок разрешает поднимать ставку (медленный контур).'},
+} %}
+
+<h1>Настройки кампании {{ campaign_id }}</h1>
+<p class="lead">Поля наследуют глобальные настройки (<a href="/settings">общие настройки биддера</a>). Снимите
+  галочку «наследовать» и укажите значение, чтобы задать своё для этой кампании.</p>
+
+{% if errors %}
+<div class="errors" role="alert">
+  <p>Настройки не сохранены — исправьте ошибки:</p>
+  <ul>
+    {% for e in errors %}
+    <li>{{ e }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/settings/campaign/{{ campaign_id }}">
+    <div class="settings-grid">
+      {% for f in fields %}
+      <div class="field">
+        <label for="{{ f }}">{{ field_meta[f].label if f in field_meta else f }}
+          <span class="badge {{ 'badge-own' if f in owned else 'badge-inherited' }}">{{ "своё" if f in owned else "унаследовано" }}</span>
+        </label>
+        <input type="number" step="any" id="{{ f }}" name="{{ f }}" value="{{ values[f] }}">
+        <label class="inherit-toggle">
+          <input type="checkbox" name="{{ f }}__inherit" {{ "checked" if f not in owned else "" }}> наследовать от глобальных настроек
+        </label>
+        {% if f in field_meta %}<span class="hint">{{ field_meta[f].hint }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="actions">
+      <button type="submit">Сохранить</button>
+    </div>
+  </form>
+</div>
+
+<h2>Товары кампании</h2>
+<div class="table-wrap">
+  {% if skus %}
+  <table>
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>merchant_sku</th>
+        <th>Текущая ставка, ₸</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in skus %}
+      <tr>
+        <td>{{ s.sku }}</td>
+        <td>{{ s.merchant_sku }}</td>
+        <td>{{ s.bid }}</td>
+        <td><a href="/settings/sku/{{ campaign_id }}/{{ s.sku }}">Настройки товара</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Товары кампании ещё не собраны — появятся после первого снапшота воркера.</p>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <a class="btn" href="/">← к дашборду</a>
+</div>
+{% endblock %}
