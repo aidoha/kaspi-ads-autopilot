@@ -151,12 +151,14 @@ def create_app() -> FastAPI:
             for row in tacos_rows:
                 snap = store.get_latest_snapshot(row["sku"])
                 row["bid"] = snap["bid"] if snap else None
+            last_ts = store.get_latest_snapshot_ts()
         finally:
             store.close()
         budgets = _get_campaign_budgets()
         return templates.TemplateResponse(request, "dashboard.html", {
             "user": user(request), "day": day,
-            "decisions": decisions, "tacos": tacos_rows, "budgets": budgets})
+            "decisions": decisions, "tacos": tacos_rows, "budgets": budgets,
+            "last_snapshot_ts": last_ts})
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_form(request: Request):

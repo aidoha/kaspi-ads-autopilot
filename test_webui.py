@@ -185,6 +185,27 @@ def test_sku_settings_inherits_campaign_then_saves():
     print("✓ webui: настройки товара — наследует кампанию, пишет свой override")
 
 
+def test_dashboard_shows_freshness():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    from connectors.marketing_client import CampaignProduct
+    import time as _t
+    st = Store(db_path)
+    # Сохраняем один товар, чтобы MAX(ts) был определён
+    product = CampaignProduct(
+        sku="166350900", merchant_sku="432085472", campaign_product_id=1,
+        bid=18, avg_cpc=12.5, score=7.0, buy_box=True, product_state="Active",
+        cost=3600, cost_today=420, gmv=97800, crr=0, cr=0, ctr=0,
+        views=0, clicks=120, carts=9, transactions=0, price=48900,
+    )
+    st.save_products_snapshot([product], ts=int(_t.time()), campaign_id="C1")
+    st.close()
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "данные на" in r.text
+    print("✓ webui: дашборд показывает метку свежести")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -196,5 +217,6 @@ if __name__ == "__main__":
     test_campaign_settings_get_and_save()
     test_campaign_settings_rejects_invalid_input()
     test_sku_settings_inherits_campaign_then_saves()
+    test_dashboard_shows_freshness()
     print("-" * 60)
     print("✓ Все проверки webui прошли")

@@ -7,6 +7,21 @@
 } %}
 
 <h1>Дашборд</h1>
+
+{% if last_snapshot_ts %}
+  <p class="freshness">данные на {{ last_snapshot_ts | dt }}
+     <form method="post" action="/refresh" style="display:inline">
+       <button type="submit">↻ Обновить сейчас</button>
+     </form>
+  </p>
+{% else %}
+  <p class="freshness">данные ещё не собраны
+     <form method="post" action="/refresh" style="display:inline">
+       <button type="submit">↻ Обновить сейчас</button>
+     </form>
+  </p>
+{% endif %}
+
 <p class="lead">Данные за {{ day }} — решения биддера, TACoS и текущие ставки по SKU из <code>db/autopilot.db</code>.</p>
 
 <h2>Решения за день</h2>
