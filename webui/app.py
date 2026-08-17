@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from datetime import datetime
@@ -234,23 +235,12 @@ def create_app() -> FastAPI:
         try:
             g = load_rules_config(rules_path)
             camp_ov = store.get_overrides("campaign", base_campaign)
-            # Собираем предполагаемые overrides этого уровня из формы:
-            proposed = {}
-            for f in OVERRIDABLE_FIELDS:
-                if form.get(f"{f}__inherit") == "on":
-                    continue  # наследовать → нет override
-                raw = (form.get(f) or "").strip()
-                if raw != "":
-                    proposed[f] = raw
-            # Эффективный конфиг для валидации (кросс-поля: ceiling>=min_bid и т.п.):
-            if scope == "campaign":
-                eff = resolve_config(g, proposed, {})
-            else:
-                eff = resolve_config(g, camp_ov, proposed)
-            errs = validate_settings({f: getattr(eff, f) for f in SETTINGS_FIELDS})
-            if errs:
-                # Перерисуем форму с ошибками (значения — из формы/эффективные).
-                values = {f: getattr(eff, f) for f in OVERRIDABLE_FIELDS}
+            # База для перерисовки формы при ошибке (эффективный конфиг ДО этой
+            # правки — наследование без учёта proposed, т.к. proposed мог оказаться
+            # мусором и resolve_config() на нём упадёт, см. ниже).
+            base_eff = g if scope == "campaign" else resolve_config(g, camp_ov, {})
+
+            def _rerender(errs: list[str], values: dict):
                 tpl = "campaign_settings.html" if scope == "campaign" else "sku_settings.html"
                 extra = {"campaign_id": base_campaign, "owned": set(proposed)}
                 if scope == "sku":
@@ -260,6 +250,42 @@ def create_app() -> FastAPI:
                 return templates.TemplateResponse(request, tpl, {
                     "user": user(request), "fields": OVERRIDABLE_FIELDS,
                     "values": values, "errors": errs, **extra}, status_code=200)
+
+            # Собираем предполагаемые overrides этого уровня из формы:
+            proposed = {}
+            for f in OVERRIDABLE_FIELDS:
+                if form.get(f"{f}__inherit") == "on":
+                    continue  # наследовать → нет override
+                raw = (form.get(f) or "").strip()
+                if raw != "":
+                    proposed[f] = raw
+
+            # Проверка ДО resolve_config()/_coerce(): нечисловой ввод (например,
+            # "abc") иначе уронит resolve_config() необработанным ValueError
+            # (float("abc")) → 500 вместо перерисовки формы с ошибкой. Ничего не
+            # пишем, пока каждое присланное значение не окажется конечным числом.
+            num_errs = []
+            for f, raw in proposed.items():
+                try:
+                    v = float(raw)
+                    if not math.isfinite(v):
+                        num_errs.append(f"{f}: не конечное число")
+                except (TypeError, ValueError):
+                    num_errs.append(f"{f}: не число")
+            if num_errs:
+                values = {f: proposed.get(f, getattr(base_eff, f)) for f in OVERRIDABLE_FIELDS}
+                return _rerender(num_errs, values)
+
+            # Эффективный конфиг для валидации (кросс-поля: ceiling>=min_bid и т.п.):
+            if scope == "campaign":
+                eff = resolve_config(g, proposed, {})
+            else:
+                eff = resolve_config(g, camp_ov, proposed)
+            errs = validate_settings({f: getattr(eff, f) for f in SETTINGS_FIELDS})
+            if errs:
+                # Перерисуем форму с ошибками (значения — из формы/эффективные).
+                values = {f: getattr(eff, f) for f in OVERRIDABLE_FIELDS}
+                return _rerender(errs, values)
             # Применяем: set для proposed, delete для остального (наследовать).
             existing = store.get_overrides(scope, scope_id)
             ts = int(time.time())
@@ -273,7 +299,7 @@ def create_app() -> FastAPI:
                 elif f in existing:
                     store.delete_override(scope, scope_id, f)
                     store.log_settings_change(
-                        user(request), f"{scope}:{scope_id}:{f}", "override", "inherit", ts)
+                        user(request), f"{scope}:{scope_id}:{f}", existing.get(f), "inherit", ts)
         finally:
             store.close()
         return None

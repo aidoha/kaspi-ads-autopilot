@@ -148,6 +148,24 @@ def test_campaign_settings_get_and_save():
     print("✓ webui: настройки кампании — GET форма + POST override/сброс")
 
 
+def test_campaign_settings_rejects_invalid_input():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    st = Store(db_path)
+    # нечисловое значение — раньше падало необработанным ValueError (500)
+    r = client.post("/settings/campaign/C1", data={"bid_ceiling": "abc"})
+    assert r.status_code == 200, r.status_code
+    assert "не число" in r.text
+    assert st.get_overrides("campaign", "C1") == {}
+    # кросс-полевая ошибка: потолок ставки ниже минимальной ставки
+    r = client.post("/settings/campaign/C1",
+                    data={"bid_ceiling": "0", "min_bid": "10"})
+    assert r.status_code == 200, r.status_code
+    assert st.get_overrides("campaign", "C1") == {}
+    st.close()
+    print("✓ webui: настройки кампании — невалидный ввод (не число / кросс-поле) не пишет override")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -157,5 +175,6 @@ if __name__ == "__main__":
     test_settings_save_does_not_touch_dry_run()
     test_dashboard_shows_decisions_from_db()
     test_campaign_settings_get_and_save()
+    test_campaign_settings_rejects_invalid_input()
     print("-" * 60)
     print("✓ Все проверки webui прошли")
