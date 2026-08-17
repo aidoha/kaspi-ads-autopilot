@@ -166,6 +166,25 @@ def test_campaign_settings_rejects_invalid_input():
     print("✓ webui: настройки кампании — невалидный ввод (не число / кросс-поле) не пишет override")
 
 
+def test_sku_settings_inherits_campaign_then_saves():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    st = Store(db_path)
+    st.set_override("campaign", "C1", "bid_ceiling", "80", "admin", 1)  # кампания даёт 80
+    st.close()
+    r = client.get("/settings/sku/C1/SKU-1")
+    assert r.status_code == 200
+    assert "80" in r.text  # SKU наследует потолок кампании
+    # переопределяем на уровне SKU
+    r = client.post("/settings/sku/C1/SKU-1",
+                    data={"bid_ceiling": "120"}, follow_redirects=False)
+    assert r.status_code in (303, 302)
+    st = Store(db_path)
+    assert st.get_overrides("sku", "SKU-1").get("bid_ceiling") == "120"
+    st.close()
+    print("✓ webui: настройки товара — наследует кампанию, пишет свой override")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -176,5 +195,6 @@ if __name__ == "__main__":
     test_dashboard_shows_decisions_from_db()
     test_campaign_settings_get_and_save()
     test_campaign_settings_rejects_invalid_input()
+    test_sku_settings_inherits_campaign_then_saves()
     print("-" * 60)
     print("✓ Все проверки webui прошли")

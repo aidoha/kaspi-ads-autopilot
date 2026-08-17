@@ -329,6 +329,26 @@ def create_app() -> FastAPI:
         return resp or RedirectResponse(
             f"/settings/campaign/{campaign_id}", status_code=303)
 
+    @app.get("/settings/sku/{campaign_id}/{sku}", response_class=HTMLResponse)
+    def sku_settings_form(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        values, owned = _effective_and_flags(campaign_id, sku)
+        return templates.TemplateResponse(request, "sku_settings.html", {
+            "user": user(request), "campaign_id": campaign_id, "sku": sku,
+            "fields": OVERRIDABLE_FIELDS, "values": values, "owned": owned,
+            "errors": []})
+
+    @app.post("/settings/sku/{campaign_id}/{sku}")
+    async def sku_settings_save(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        form = await request.form()
+        resp = _save_overrides(request, "sku", sku, form,
+                               base_sku=sku, base_campaign=campaign_id)
+        return resp or RedirectResponse(
+            f"/settings/sku/{campaign_id}/{sku}", status_code=303)
+
     @app.post("/dry-run")
     async def dry_run_toggle(request: Request):
         if not user(request):
