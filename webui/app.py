@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from datetime import datetime
@@ -14,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from core.config_resolver import resolve_config, OVERRIDABLE_FIELDS
+from core.rules import load_rules_config
 from core.settings_io import load_settings, save_settings, validate_settings, SETTINGS_FIELDS
 from core.store import Store
 from webui.auth import verify_password
@@ -70,6 +73,44 @@ def _get_campaign_budgets() -> dict:
     _budget_cache["ts"] = now
     _budget_cache["budgets"] = budgets
     return budgets
+
+
+def _live_refresh_snapshot(db_path: str) -> bool:
+    """Разовый read-only пулл кабинета в снапшоты. Best-effort: любая проблема
+    (нет кредов/сессия/WAF) → False, без исключения. Ставки НЕ трогаются."""
+    try:
+        storage_path = os.environ.get("STORAGE_STATE", "storage_state.json")
+        merchant_id = os.environ.get("KASPI_MARKETING_MERCHANT_ID", "")
+        login = os.environ.get("KASPI_MARKETING_LOGIN", "")
+        password = os.environ.get("KASPI_MARKETING_PASSWORD", "")
+        if not (storage_path and os.path.exists(storage_path)
+                and merchant_id and login and password):
+            return False
+        from connectors.session_manager import SessionManager
+        from connectors.marketing_client import MarketingClient
+        session = SessionManager(merchant_login=login, merchant_password=password,
+                                 storage_path=storage_path)
+        cookies = session.get_cookies()
+        marketing = MarketingClient(
+            merchant_id, cookies=cookies, dry_run=True,
+            on_auth_error=lambda: session.get_cookies(force_refresh=True))
+        try:
+            today = datetime.now(ALMATY).date().isoformat()
+            campaigns = marketing.list_active_campaigns(today, today)
+            store = Store(db_path)
+            try:
+                ts = int(time.time())
+                for c in campaigns:
+                    products = marketing.get_campaign_products(c.id, today, today)
+                    store.save_products_snapshot(products, ts, campaign_id=c.id)
+            finally:
+                store.close()
+        finally:
+            marketing.close()
+        return True
+    except Exception as e:
+        log.warning("Живой пулл /refresh не удался (показываю прежние данные): %s", e)
+        return False
 
 
 def create_app() -> FastAPI:
@@ -148,12 +189,21 @@ def create_app() -> FastAPI:
             for row in tacos_rows:
                 snap = store.get_latest_snapshot(row["sku"])
                 row["bid"] = snap["bid"] if snap else None
+            last_ts = store.get_latest_snapshot_ts()
         finally:
             store.close()
         budgets = _get_campaign_budgets()
         return templates.TemplateResponse(request, "dashboard.html", {
             "user": user(request), "day": day,
-            "decisions": decisions, "tacos": tacos_rows, "budgets": budgets})
+            "decisions": decisions, "tacos": tacos_rows, "budgets": budgets,
+            "last_snapshot_ts": last_ts})
+
+    @app.post("/refresh")
+    def refresh(request: Request):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        _live_refresh_snapshot(db_path)
+        return RedirectResponse("/", status_code=303)
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_form(request: Request):
@@ -197,6 +247,154 @@ def create_app() -> FastAPI:
             store.close()
         save_settings(rules_path, new)
         return RedirectResponse("/settings", status_code=303)
+
+    def _effective_and_flags(campaign_id: str, sku: str | None):
+        """Эффективные значения переопределяемых полей (глобал → кампания → SKU)
+        и множество полей, переопределённых НА ЭТОМ уровне (для бейджа «своё»).
+        sku=None → уровень кампании; иначе — уровень товара (наследует кампанию).
+        Общий хелпер для страниц настроек кампании (Task 6) и товара (Task 7)."""
+        store = Store(db_path)
+        try:
+            g = load_rules_config(rules_path)
+            camp_ov = store.get_overrides("campaign", campaign_id)
+            if sku is None:
+                eff = resolve_config(g, camp_ov, {})
+                owned = set(camp_ov)
+            else:
+                sku_ov = store.get_overrides("sku", sku)
+                eff = resolve_config(g, camp_ov, sku_ov)
+                owned = set(sku_ov)
+        finally:
+            store.close()
+        values = {f: getattr(eff, f) for f in OVERRIDABLE_FIELDS}
+        return values, owned
+
+    def _save_overrides(request: Request, scope: str, scope_id: str, form,
+                        base_sku: str | None, base_campaign: str):
+        """Сохраняет overrides уровня `scope` (campaign|sku) для `scope_id` из
+        данных формы: поле с галкой «{field}__inherit» = наследовать (override
+        удаляется); непустое значение без галки = своё (override пишется).
+        Перед записью валидирует ЭФФЕКТИВНЫЙ конфиг (кросс-полевые проверки вроде
+        bid_ceiling >= min_bid) — если невалидно, возвращает TemplateResponse с
+        ошибками вместо None (вызывающий роут решает, что делать с результатом).
+        Общий хелпер для Task 6 (кампания) и Task 7 (товар)."""
+        store = Store(db_path)
+        try:
+            g = load_rules_config(rules_path)
+            camp_ov = store.get_overrides("campaign", base_campaign)
+            # База для перерисовки формы при ошибке (эффективный конфиг ДО этой
+            # правки — наследование без учёта proposed, т.к. proposed мог оказаться
+            # мусором и resolve_config() на нём упадёт, см. ниже).
+            base_eff = g if scope == "campaign" else resolve_config(g, camp_ov, {})
+
+            def _rerender(errs: list[str], values: dict):
+                tpl = "campaign_settings.html" if scope == "campaign" else "sku_settings.html"
+                extra = {"campaign_id": base_campaign, "owned": set(proposed)}
+                if scope == "sku":
+                    extra["sku"] = base_sku
+                else:
+                    extra["skus"] = store.get_campaign_skus(base_campaign)
+                return templates.TemplateResponse(request, tpl, {
+                    "user": user(request), "fields": OVERRIDABLE_FIELDS,
+                    "values": values, "errors": errs, **extra}, status_code=200)
+
+            # Собираем предполагаемые overrides этого уровня из формы:
+            proposed = {}
+            for f in OVERRIDABLE_FIELDS:
+                if form.get(f"{f}__inherit") == "on":
+                    continue  # наследовать → нет override
+                raw = (form.get(f) or "").strip()
+                if raw != "":
+                    proposed[f] = raw
+
+            # Проверка ДО resolve_config()/_coerce(): нечисловой ввод (например,
+            # "abc") иначе уронит resolve_config() необработанным ValueError
+            # (float("abc")) → 500 вместо перерисовки формы с ошибкой. Ничего не
+            # пишем, пока каждое присланное значение не окажется конечным числом.
+            num_errs = []
+            for f, raw in proposed.items():
+                try:
+                    v = float(raw)
+                    if not math.isfinite(v):
+                        num_errs.append(f"{f}: не конечное число")
+                except (TypeError, ValueError):
+                    num_errs.append(f"{f}: не число")
+            if num_errs:
+                values = {f: proposed.get(f, getattr(base_eff, f)) for f in OVERRIDABLE_FIELDS}
+                return _rerender(num_errs, values)
+
+            # Эффективный конфиг для валидации (кросс-поля: ceiling>=min_bid и т.п.):
+            if scope == "campaign":
+                eff = resolve_config(g, proposed, {})
+            else:
+                eff = resolve_config(g, camp_ov, proposed)
+            errs = validate_settings({f: getattr(eff, f) for f in SETTINGS_FIELDS})
+            if errs:
+                # Перерисуем форму с ошибками (значения — из формы/эффективные).
+                values = {f: getattr(eff, f) for f in OVERRIDABLE_FIELDS}
+                return _rerender(errs, values)
+            # Применяем: set для proposed, delete для остального (наследовать).
+            existing = store.get_overrides(scope, scope_id)
+            ts = int(time.time())
+            for f in OVERRIDABLE_FIELDS:
+                if f in proposed:
+                    old = existing.get(f)
+                    store.set_override(scope, scope_id, f, proposed[f], user(request), ts)
+                    if str(old) != str(proposed[f]):
+                        store.log_settings_change(
+                            user(request), f"{scope}:{scope_id}:{f}", old, proposed[f], ts)
+                elif f in existing:
+                    store.delete_override(scope, scope_id, f)
+                    store.log_settings_change(
+                        user(request), f"{scope}:{scope_id}:{f}", existing.get(f), "inherit", ts)
+        finally:
+            store.close()
+        return None
+
+    @app.get("/settings/campaign/{campaign_id}", response_class=HTMLResponse)
+    def campaign_settings_form(request: Request, campaign_id: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        values, owned = _effective_and_flags(campaign_id, None)
+        store = Store(db_path)
+        try:
+            skus = store.get_campaign_skus(campaign_id)
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "campaign_settings.html", {
+            "user": user(request), "campaign_id": campaign_id,
+            "fields": OVERRIDABLE_FIELDS, "values": values, "owned": owned,
+            "skus": skus, "errors": []})
+
+    @app.post("/settings/campaign/{campaign_id}")
+    async def campaign_settings_save(request: Request, campaign_id: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        form = await request.form()
+        resp = _save_overrides(request, "campaign", campaign_id, form,
+                               base_sku=None, base_campaign=campaign_id)
+        return resp or RedirectResponse(
+            f"/settings/campaign/{campaign_id}", status_code=303)
+
+    @app.get("/settings/sku/{campaign_id}/{sku}", response_class=HTMLResponse)
+    def sku_settings_form(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        values, owned = _effective_and_flags(campaign_id, sku)
+        return templates.TemplateResponse(request, "sku_settings.html", {
+            "user": user(request), "campaign_id": campaign_id, "sku": sku,
+            "fields": OVERRIDABLE_FIELDS, "values": values, "owned": owned,
+            "errors": []})
+
+    @app.post("/settings/sku/{campaign_id}/{sku}")
+    async def sku_settings_save(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        form = await request.form()
+        resp = _save_overrides(request, "sku", sku, form,
+                               base_sku=sku, base_campaign=campaign_id)
+        return resp or RedirectResponse(
+            f"/settings/sku/{campaign_id}/{sku}", status_code=303)
 
     @app.post("/dry-run")
     async def dry_run_toggle(request: Request):

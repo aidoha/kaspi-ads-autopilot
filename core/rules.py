@@ -75,6 +75,13 @@ def _state_for(state: dict | None, sku: str) -> DailyState:
     return (state or {}).get(sku) or DailyState()
 
 
+def _cfg_for(cfg, s) -> "RulesConfig":
+    """cfg может быть RulesConfig, None или резолвер Callable[[sku], RulesConfig]."""
+    if callable(cfg):
+        return cfg(s)
+    return cfg or RulesConfig()
+
+
 def _hold(s, loop: str, reason: str) -> Decision:
     return Decision(s.sku, s.merchant_sku, s.bid, s.bid, "hold", loop, reason)
 
@@ -100,10 +107,10 @@ def evaluate_fast(
     skus: list, cfg: RulesConfig | None = None, state: dict | None = None,
     daily_budget: float = 0.0,
 ) -> list[Decision]:
-    cfg = cfg or RulesConfig()
     out: list[Decision] = []
     for s in skus:
-        out.append(_eval_fast_one(s, cfg, _state_for(state, s.sku), daily_budget))
+        out.append(_eval_fast_one(s, _cfg_for(cfg, s),
+                                  _state_for(state, s.sku), daily_budget))
     return out
 
 
@@ -149,10 +156,9 @@ def _eval_fast_one(s, cfg: RulesConfig, st: DailyState,
 def evaluate_slow(
     skus: list, cfg: RulesConfig | None = None, state: dict | None = None
 ) -> list[Decision]:
-    cfg = cfg or RulesConfig()
     out: list[Decision] = []
     for s in skus:
-        out.append(_eval_slow_one(s, cfg, _state_for(state, s.sku)))
+        out.append(_eval_slow_one(s, _cfg_for(cfg, s), _state_for(state, s.sku)))
     return out
 
 

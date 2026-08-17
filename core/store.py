@@ -41,7 +41,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS products_snapshot (
                 ts INTEGER, sku TEXT, merchant_sku TEXT, bid REAL, avg_cpc REAL,
                 score REAL, cost REAL, cost_today REAL, clicks INTEGER, carts INTEGER,
-                product_state TEXT, price REAL
+                product_state TEXT, price REAL, campaign_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_snapshot_sku_ts ON products_snapshot(sku, ts);
 
@@ -65,6 +65,12 @@ class Store:
             CREATE TABLE IF NOT EXISTS settings_audit (
                 ts INTEGER, user TEXT, field TEXT, old TEXT, new TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS config_overrides (
+                scope TEXT, scope_id TEXT, field TEXT, value TEXT,
+                user TEXT, ts INTEGER,
+                PRIMARY KEY (scope, scope_id, field)
+            );
         """)
         # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
         cols = {r["name"] for r in
@@ -74,17 +80,26 @@ class Store:
                 "ALTER TABLE decisions_log ADD COLUMN campaign_id TEXT")
         self._conn.commit()
 
+        # Миграция для products_snapshot: добавить campaign_id
+        snap_cols = {r["name"] for r in
+                     self._conn.execute("PRAGMA table_info(products_snapshot)")}
+        if "campaign_id" not in snap_cols:
+            self._conn.execute(
+                "ALTER TABLE products_snapshot ADD COLUMN campaign_id TEXT")
+        self._conn.commit()
+
     # ---- снапшоты товаров ---------------------------------------------------
 
-    def save_products_snapshot(self, products: list[CampaignProduct], ts: int):
+    def save_products_snapshot(self, products: list[CampaignProduct], ts: int,
+                               campaign_id: str = ""):
         self._conn.executemany(
             """INSERT INTO products_snapshot
                (ts, sku, merchant_sku, bid, avg_cpc, score, cost, cost_today,
-                clicks, carts, product_state, price)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                clicks, carts, product_state, price, campaign_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(ts, p.sku, p.merchant_sku, p.bid, p.avg_cpc, p.score, p.cost,
-              p.cost_today, p.clicks, p.carts, p.product_state, p.price)
-             for p in products],
+              p.cost_today, p.clicks, p.carts, p.product_state, p.price,
+              campaign_id) for p in products],
         )
         self._conn.commit()
 
@@ -102,6 +117,21 @@ class Store:
             (sku,),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_campaign_skus(self, campaign_id: str) -> list[dict]:
+        """Уникальные SKU кампании со ставкой из свежего снапшота (для UI-списка)."""
+        rows = self._conn.execute(
+            """SELECT sku, merchant_sku, bid, MAX(ts) AS ts
+               FROM products_snapshot WHERE campaign_id=?
+               GROUP BY sku ORDER BY sku""",
+            (campaign_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_latest_snapshot_ts(self) -> int | None:
+        row = self._conn.execute(
+            "SELECT MAX(ts) AS ts FROM products_snapshot").fetchone()
+        return row["ts"] if row and row["ts"] is not None else None
 
     # ---- кэш выручки --------------------------------------------------------
 
@@ -205,3 +235,30 @@ class Store:
             "SELECT * FROM settings_audit ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- overrides конфига (кампания/товар) ---------------------------------
+
+    def get_overrides(self, scope: str, scope_id: str) -> dict[str, str]:
+        rows = self._conn.execute(
+            "SELECT field, value FROM config_overrides WHERE scope=? AND scope_id=?",
+            (scope, scope_id),
+        ).fetchall()
+        return {r["field"]: r["value"] for r in rows}
+
+    def set_override(self, scope: str, scope_id: str, field: str,
+                     value: str, user: str, ts: int) -> None:
+        self._conn.execute(
+            """INSERT INTO config_overrides (scope, scope_id, field, value, user, ts)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(scope, scope_id, field) DO UPDATE SET
+                 value=excluded.value, user=excluded.user, ts=excluded.ts""",
+            (scope, scope_id, field, str(value), user, ts),
+        )
+        self._conn.commit()
+
+    def delete_override(self, scope: str, scope_id: str, field: str) -> None:
+        self._conn.execute(
+            "DELETE FROM config_overrides WHERE scope=? AND scope_id=? AND field=?",
+            (scope, scope_id, field),
+        )
+        self._conn.commit()

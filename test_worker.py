@@ -194,6 +194,21 @@ def test_run_cycle_passes_campaign_budget_to_fast_brake():
     print("✓ worker: run_cycle пробрасывает бюджет кампании в тормоз (лимит от бюджета)")
 
 
+def test_run_tick_uses_per_sku_overrides():
+    """Два SKU в одной кампании: у SKU B override max_bid_step=5 → режет глубже."""
+    st = store_with_revenue({})  # выручка не важна для быстрого контура
+    st.set_override("sku", "B", "max_bid_step", "5", "test", 1)
+    fm = FakeMarketing([cp(sku="A", merchant_sku="MA", carts=0, clicks=100, bid=10),
+                        cp(sku="B", merchant_sku="MB", carts=0, clicks=100, bid=10)],
+                       dry_run=True)
+    run_tick(ctx(fm, st, dry_run=True), loop="fast", campaign_id="C1", daily_budget=0.0)
+    decs = {r["sku"]: r for r in st.get_decisions_for_day(DAY)}
+    assert decs["A"]["new_bid"] == 8   # глобальный шаг 2
+    assert decs["B"]["new_bid"] == 5   # override шаг 5
+    assert {r["sku"] for r in st.get_campaign_skus("C1")} == {"A", "B"}
+    print("✓ worker: run_tick резолвит конфиг на SKU + пишет campaign_id")
+
+
 def test_load_cfg_safe_hot_reload_and_fallback():
     from core.settings_io import save_settings, load_settings
     p = os.path.join(tempfile.mkdtemp(), "rules.yaml")
@@ -222,6 +237,7 @@ if __name__ == "__main__":
     test_run_cycle_isolates_failing_campaign()
     test_run_cycle_empty_is_noop()
     test_run_cycle_passes_campaign_budget_to_fast_brake()
+    test_run_tick_uses_per_sku_overrides()
     test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

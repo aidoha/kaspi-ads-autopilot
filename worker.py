@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from core.config_resolver import resolve_config
 from core.reconcile import reconcile
 from core.rules import RulesConfig, evaluate_fast, evaluate_slow
 
@@ -79,7 +80,7 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
 
     # Состояние берём ДО записи нового снапшота — так prev_avg_cpc = прошлый снимок.
     state = ctx.store.build_daily_state([p.sku for p in products], day)
-    ctx.store.save_products_snapshot(products, ts)
+    ctx.store.save_products_snapshot(products, ts, campaign_id=campaign_id)
 
     revenue = ctx.store.get_revenue_cache()
     reconciled = reconcile(products, revenue)
@@ -87,10 +88,16 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
     for r in reconciled:
         ctx.store.record_tacos(day, r.merchant_sku, r.tacos, r.cost, r.revenue)
 
+    # Эффективный конфиг на SKU: глобал → оверрайды кампании → оверрайды SKU.
+    camp_ov = ctx.store.get_overrides("campaign", campaign_id)
+
+    def cfg_for(s):
+        return resolve_config(ctx.cfg, camp_ov, ctx.store.get_overrides("sku", s.sku))
+
     if loop == "fast":
-        decisions = evaluate_fast(reconciled, ctx.cfg, state, daily_budget)
+        decisions = evaluate_fast(reconciled, cfg_for, state, daily_budget)
     elif loop == "slow":
-        decisions = evaluate_slow(reconciled, ctx.cfg, state)
+        decisions = evaluate_slow(reconciled, cfg_for, state)
     else:
         raise ValueError(f"неизвестный контур: {loop}")
 
@@ -251,7 +258,7 @@ def main():  # pragma: no cover
     sched = BlockingScheduler(timezone="Asia/Almaty")
     sched.add_job(lambda: run_revenue_cycle(build_ctx()), "interval", minutes=60,
                   id="revenue")
-    sched.add_job(lambda: run_cycle(build_ctx(), "fast"), "interval", minutes=20,
+    sched.add_job(lambda: run_cycle(build_ctx(), "fast"), "interval", minutes=5,
                   id="fast")
     sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron", hour="10,20",
                   id="slow")
@@ -265,7 +272,7 @@ def main():  # pragma: no cover
     sched.add_job(analyst_job, "cron", hour="22", id="analyst")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/20м, slow/10:00,20:00, analyst/22:00 (Алматы)",
+             "fast/5м, slow/10:00,20:00, analyst/22:00 (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные")
     sched.start()
 

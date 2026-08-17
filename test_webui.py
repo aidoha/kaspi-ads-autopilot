@@ -28,6 +28,12 @@ def _client():
     return TestClient(app, base_url="https://testserver"), rules
 
 
+def _client_logged_in():
+    c, rules = _client()
+    c.post("/login", data={"username": "admin", "password": "secret"})
+    return c, rules, os.environ["DB_PATH"]
+
+
 def test_password_hash_roundtrip():
     h = hash_password("secret")
     assert verify_password("secret", h) and not verify_password("wrong", h)
@@ -120,6 +126,101 @@ def test_dashboard_shows_decisions_from_db():
     print("✓ webui: дашборд показывает решения из БД")
 
 
+def test_campaign_settings_get_and_save():
+    client, rules, db_path = _client_logged_in()
+    # GET показывает форму с эффективными (глобальными) значениями
+    r = client.get("/settings/campaign/C1")
+    assert r.status_code == 200
+    assert "bid_ceiling" in r.text
+    # POST: задаём override bid_ceiling=80 (флаг наследования снят)
+    r = client.post("/settings/campaign/C1",
+                    data={"bid_ceiling": "80"}, follow_redirects=False)
+    assert r.status_code in (303, 302)
+    from core.store import Store
+    st = Store(db_path)
+    assert st.get_overrides("campaign", "C1").get("bid_ceiling") == "80"
+    # POST со снятым override (inherit) удаляет строку
+    r = client.post("/settings/campaign/C1",
+                    data={"bid_ceiling": "80", "bid_ceiling__inherit": "on"},
+                    follow_redirects=False)
+    assert "bid_ceiling" not in st.get_overrides("campaign", "C1")
+    st.close()
+    print("✓ webui: настройки кампании — GET форма + POST override/сброс")
+
+
+def test_campaign_settings_rejects_invalid_input():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    st = Store(db_path)
+    # нечисловое значение — раньше падало необработанным ValueError (500)
+    r = client.post("/settings/campaign/C1", data={"bid_ceiling": "abc"})
+    assert r.status_code == 200, r.status_code
+    assert "не число" in r.text
+    assert st.get_overrides("campaign", "C1") == {}
+    # кросс-полевая ошибка: потолок ставки ниже минимальной ставки
+    r = client.post("/settings/campaign/C1",
+                    data={"bid_ceiling": "0", "min_bid": "10"})
+    assert r.status_code == 200, r.status_code
+    assert st.get_overrides("campaign", "C1") == {}
+    st.close()
+    print("✓ webui: настройки кампании — невалидный ввод (не число / кросс-поле) не пишет override")
+
+
+def test_sku_settings_inherits_campaign_then_saves():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    st = Store(db_path)
+    st.set_override("campaign", "C1", "bid_ceiling", "80", "admin", 1)  # кампания даёт 80
+    st.close()
+    r = client.get("/settings/sku/C1/SKU-1")
+    assert r.status_code == 200
+    assert "80" in r.text  # SKU наследует потолок кампании
+    # переопределяем на уровне SKU
+    r = client.post("/settings/sku/C1/SKU-1",
+                    data={"bid_ceiling": "120"}, follow_redirects=False)
+    assert r.status_code in (303, 302)
+    st = Store(db_path)
+    assert st.get_overrides("sku", "SKU-1").get("bid_ceiling") == "120"
+    st.close()
+    print("✓ webui: настройки товара — наследует кампанию, пишет свой override")
+
+
+def test_dashboard_shows_freshness():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    from connectors.marketing_client import CampaignProduct
+    import time as _t
+    st = Store(db_path)
+    # Сохраняем один товар, чтобы MAX(ts) был определён
+    product = CampaignProduct(
+        sku="166350900", merchant_sku="432085472", campaign_product_id=1,
+        bid=18, avg_cpc=12.5, score=7.0, buy_box=True, product_state="Active",
+        cost=3600, cost_today=420, gmv=97800, crr=0, cr=0, ctr=0,
+        views=0, clicks=120, carts=9, transactions=0, price=48900,
+    )
+    st.save_products_snapshot([product], ts=int(_t.time()), campaign_id="C1")
+    st.close()
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "данные на" in r.text
+    print("✓ webui: дашборд показывает метку свежести")
+
+
+def test_refresh_requires_login_and_is_best_effort():
+    # Залогинен, но в тестовом окружении нет кредов кабинета (пустой ENV_FILE) →
+    # живой пулл невозможен, но роут НЕ должен падать 500-й — best-effort редирект на /.
+    client, rules, db_path = _client_logged_in()
+    r = client.post("/refresh", follow_redirects=False)
+    assert r.status_code in (302, 303), r.status_code
+    assert r.headers["location"] == "/"
+    # неавторизованный клиент (свежий, без логина) → редирект на /login
+    c, _ = _client()
+    r2 = c.post("/refresh", follow_redirects=False)
+    assert r2.status_code in (302, 303, 307), r2.status_code
+    assert "/login" in r2.headers["location"]
+    print("✓ webui: /refresh — логин обязателен, best-effort не падает без сессии кабинета")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -128,5 +229,10 @@ if __name__ == "__main__":
     test_dry_run_toggle()
     test_settings_save_does_not_touch_dry_run()
     test_dashboard_shows_decisions_from_db()
+    test_campaign_settings_get_and_save()
+    test_campaign_settings_rejects_invalid_input()
+    test_sku_settings_inherits_campaign_then_saves()
+    test_dashboard_shows_freshness()
+    test_refresh_requires_login_and_is_best_effort()
     print("-" * 60)
     print("✓ Все проверки webui прошли")
