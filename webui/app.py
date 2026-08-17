@@ -75,6 +75,44 @@ def _get_campaign_budgets() -> dict:
     return budgets
 
 
+def _live_refresh_snapshot(db_path: str) -> bool:
+    """Разовый read-only пулл кабинета в снапшоты. Best-effort: любая проблема
+    (нет кредов/сессия/WAF) → False, без исключения. Ставки НЕ трогаются."""
+    try:
+        storage_path = os.environ.get("STORAGE_STATE", "storage_state.json")
+        merchant_id = os.environ.get("KASPI_MARKETING_MERCHANT_ID", "")
+        login = os.environ.get("KASPI_MARKETING_LOGIN", "")
+        password = os.environ.get("KASPI_MARKETING_PASSWORD", "")
+        if not (storage_path and os.path.exists(storage_path)
+                and merchant_id and login and password):
+            return False
+        from connectors.session_manager import SessionManager
+        from connectors.marketing_client import MarketingClient
+        session = SessionManager(merchant_login=login, merchant_password=password,
+                                 storage_path=storage_path)
+        cookies = session.get_cookies()
+        marketing = MarketingClient(
+            merchant_id, cookies=cookies, dry_run=True,
+            on_auth_error=lambda: session.get_cookies(force_refresh=True))
+        try:
+            today = datetime.now(ALMATY).date().isoformat()
+            campaigns = marketing.list_active_campaigns(today, today)
+            store = Store(db_path)
+            try:
+                ts = int(time.time())
+                for c in campaigns:
+                    products = marketing.get_campaign_products(c.id, today, today)
+                    store.save_products_snapshot(products, ts, campaign_id=c.id)
+            finally:
+                store.close()
+        finally:
+            marketing.close()
+        return True
+    except Exception as e:
+        log.warning("Живой пулл /refresh не удался (показываю прежние данные): %s", e)
+        return False
+
+
 def create_app() -> FastAPI:
     # Подхватить .env (для uvicorn через systemd), не перекрывая уже заданное окружение.
     try:
@@ -159,6 +197,13 @@ def create_app() -> FastAPI:
             "user": user(request), "day": day,
             "decisions": decisions, "tacos": tacos_rows, "budgets": budgets,
             "last_snapshot_ts": last_ts})
+
+    @app.post("/refresh")
+    def refresh(request: Request):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        _live_refresh_snapshot(db_path)
+        return RedirectResponse("/", status_code=303)
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_form(request: Request):

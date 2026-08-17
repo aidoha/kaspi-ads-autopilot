@@ -206,6 +206,21 @@ def test_dashboard_shows_freshness():
     print("✓ webui: дашборд показывает метку свежести")
 
 
+def test_refresh_requires_login_and_is_best_effort():
+    # Залогинен, но в тестовом окружении нет кредов кабинета (пустой ENV_FILE) →
+    # живой пулл невозможен, но роут НЕ должен падать 500-й — best-effort редирект на /.
+    client, rules, db_path = _client_logged_in()
+    r = client.post("/refresh", follow_redirects=False)
+    assert r.status_code in (302, 303), r.status_code
+    assert r.headers["location"] == "/"
+    # неавторизованный клиент (свежий, без логина) → редирект на /login
+    c, _ = _client()
+    r2 = c.post("/refresh", follow_redirects=False)
+    assert r2.status_code in (302, 303, 307), r2.status_code
+    assert "/login" in r2.headers["location"]
+    print("✓ webui: /refresh — логин обязателен, best-effort не падает без сессии кабинета")
+
+
 if __name__ == "__main__":
     test_password_hash_roundtrip()
     test_settings_requires_login()
@@ -218,5 +233,6 @@ if __name__ == "__main__":
     test_campaign_settings_rejects_invalid_input()
     test_sku_settings_inherits_campaign_then_saves()
     test_dashboard_shows_freshness()
+    test_refresh_requires_login_and_is_best_effort()
     print("-" * 60)
     print("✓ Все проверки webui прошли")
