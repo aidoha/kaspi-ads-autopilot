@@ -258,7 +258,7 @@ def main():  # pragma: no cover
     sched = BlockingScheduler(timezone="Asia/Almaty")
     sched.add_job(lambda: run_revenue_cycle(build_ctx()), "interval", minutes=60,
                   id="revenue")
-    sched.add_job(lambda: run_cycle(build_ctx(), "fast"), "interval", minutes=20,
+    sched.add_job(lambda: run_cycle(build_ctx(), "fast"), "interval", minutes=5,
                   id="fast")
     sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron", hour="10,20",
                   id="slow")
@@ -272,7 +272,7 @@ def main():  # pragma: no cover
     sched.add_job(analyst_job, "cron", hour="22", id="analyst")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/20м, slow/10:00,20:00, analyst/22:00 (Алматы)",
+             "fast/5м, slow/10:00,20:00, analyst/22:00 (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные")
     sched.start()
 
