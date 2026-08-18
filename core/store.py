@@ -158,15 +158,23 @@ class Store:
         self._conn.commit()
 
     def get_sku_name_map(self) -> dict[str, str]:
-        """{sku: name} — мост sku→merchant_sku берётся из свежего снапшота,
-        merchant_sku→name из product_names. Для подписи строк дашборда."""
+        """Карта имён для подписи строк дашборда. Отвечает на ОБА ключа:
+        campaign sku (строки «Решения») и merchant_sku (строки TACoS — record_tacos
+        пишет merchant_sku). Мост sku→merchant_sku из свежего снапшота,
+        merchant_sku→name из product_names."""
         rows = self._conn.execute(
-            """SELECT ps.sku AS sku, pn.name AS name
+            """SELECT ps.sku AS sku, ps.merchant_sku AS merchant_sku, pn.name AS name
                FROM (SELECT sku, merchant_sku, MAX(ts) AS ts
                      FROM products_snapshot GROUP BY sku) ps
                JOIN product_names pn ON pn.merchant_sku = ps.merchant_sku""",
         ).fetchall()
-        return {r["sku"]: r["name"] for r in rows if r["name"]}
+        out: dict[str, str] = {}
+        for r in rows:
+            if not r["name"]:
+                continue
+            out[r["sku"]] = r["name"]
+            out[r["merchant_sku"]] = r["name"]
+        return out
 
     def get_latest_snapshot_ts(self) -> int | None:
         row = self._conn.execute(

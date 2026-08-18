@@ -24,6 +24,7 @@ SAMPLE_PRODUCTS = {
         {
             "sku": "166350900",
             "merchantSku": "432085472",
+            "title": "AYORA AY-03-A1 черный",
             "campaignProductId": 5551,
             "bid": 18,
             "avgCpc": 12.5,
@@ -111,6 +112,7 @@ def test_get_products_parses_fields():
     assert isinstance(p, CampaignProduct)
     assert p.sku == "166350900"
     assert p.merchant_sku == "432085472"   # КЛЮЧ сшивки с выручкой
+    assert p.name == "AYORA AY-03-A1 черный"   # title из маркетинга (для product_names)
     assert p.bid == 18
     assert p.avg_cpc == 12.5
     assert p.score == 7.0

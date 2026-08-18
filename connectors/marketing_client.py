@@ -70,6 +70,7 @@ class CampaignProduct:
     carts: int
     transactions: int
     price: float
+    name: str = ""            # title из кабинета — человекочитаемое имя (для product_names)
 
 
 @dataclass
@@ -207,6 +208,7 @@ class MarketingClient:
                 carts=int(row.get("carts", 0) or 0),
                 transactions=int(row.get("transactions", 0) or 0),
                 price=float(row.get("price", 0) or 0),
+                name=str(row.get("title", "") or ""),
             ))
         return out
 

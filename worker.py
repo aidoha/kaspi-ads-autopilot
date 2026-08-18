@@ -84,6 +84,13 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
     state = ctx.store.build_daily_state([p.sku for p in products], day)
     ctx.store.save_products_snapshot(products, ts, campaign_id=campaign_id)
 
+    # Имена из маркетинга (title) → product_names: у рекламируемых товаров имя
+    # есть даже без заказов, где Shop API его не даёт (worker.py:revenue-цикл
+    # покрывает только проданные). Пустые не пишем — не затираем известное.
+    mk_names = {p.merchant_sku: p.name for p in products if p.merchant_sku and p.name}
+    if mk_names:
+        ctx.store.put_product_names(mk_names, ts)
+
     revenue = ctx.store.get_revenue_cache()
     reconciled = reconcile(products, revenue)
 

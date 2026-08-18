@@ -209,6 +209,19 @@ def test_run_tick_uses_per_sku_overrides():
     print("✓ worker: run_tick резолвит конфиг на SKU + пишет campaign_id")
 
 
+def test_run_tick_writes_marketing_product_names():
+    """title из маркетинга → product_names каждый тик, чтобы имя было даже у
+    товаров без заказов (у которых имя из Shop API взять неоткуда)."""
+    st = store_with_revenue({})
+    fm = FakeMarketing([cp(sku="A", merchant_sku="MA", name="Электробритва AYORA AY-97")],
+                       dry_run=True)
+    run_tick(ctx(fm, st, dry_run=True), loop="fast", campaign_id="C1", daily_budget=0.0)
+    names = st.get_sku_name_map()
+    assert names.get("A") == "Электробритва AYORA AY-97"    # по campaign sku
+    assert names.get("MA") == "Электробритва AYORA AY-97"   # по merchant_sku (строки TACoS)
+    print("✓ worker: run_tick пишет имена из маркетинга (title→product_names)")
+
+
 def test_apply_logs_each_batch_before_next_put():
     """Боевой partial-write: если поздний PUT падает, аудит уже применённого
     (раннего) батча обязан остаться. Иначе ставка в кабинете изменена, а следов нет."""
@@ -266,6 +279,7 @@ if __name__ == "__main__":
     test_run_cycle_empty_is_noop()
     test_run_cycle_passes_campaign_budget_to_fast_brake()
     test_run_tick_uses_per_sku_overrides()
+    test_run_tick_writes_marketing_product_names()
     test_apply_logs_each_batch_before_next_put()
     test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)

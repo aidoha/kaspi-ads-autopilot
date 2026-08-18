@@ -229,8 +229,12 @@ def test_product_names_and_sku_map():
                                    _mk_product("B", merchant_sku="mB", bid=20)],
                                   ts=100, campaign_id="C1")
         st.put_product_names({"mA": "Электробритва X", "mB": "Триммер Y"}, ts=100)
-        # sku_name_map стыкует sku->merchant_sku->name
-        assert st.get_sku_name_map() == {"A": "Электробритва X", "B": "Триммер Y"}
+        # sku_name_map стыкует sku->merchant_sku->name И отвечает на ОБА ключа:
+        # строки дашборда «Решения» идут по campaign sku, а строки TACoS — по
+        # merchant_sku (record_tacos пишет merchant_sku). Карта должна крыть оба.
+        m0 = st.get_sku_name_map()
+        assert m0["A"] == "Электробритва X" and m0["B"] == "Триммер Y"
+        assert m0["mA"] == "Электробритва X" and m0["mB"] == "Триммер Y"
         # get_campaign_skus подтягивает name LEFT JOIN-ом
         by = {r["sku"]: r for r in st.get_campaign_skus("C1")}
         assert by["A"]["name"] == "Электробритва X"
