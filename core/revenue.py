@@ -56,6 +56,7 @@ class SkuRevenue:
     cancelled: float = 0.0        # сколько срезали отменами
     orders_count: int = 0         # число зачтённых заказов с этим SKU
     units: int = 0                # штук продано (зачтённых)
+    name: str = ""                # человекочитаемое название (из OrderEntry.name)
 
 
 class RevenueCollector:
@@ -94,6 +95,8 @@ class RevenueCollector:
                     continue
                 rec = result[sku]
                 rec.merchant_sku = sku
+                if e.name and not rec.name:
+                    rec.name = e.name  # первое непустое имя из позиций заказа
                 rec.gross_revenue += e.total_price
                 if order.is_counted:
                     rec.revenue += e.total_price

@@ -14,6 +14,7 @@
   --danger: #ff6b6b;
   --danger-bg: #2a1518;
   --success: #34d399;
+  --warning: #fbbf24;
   --radius: 8px;
   --max-width: 880px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -381,6 +382,100 @@ tr:last-child td {
   padding: 0.9rem;
 }
 
+/* ---- ячейка товара (название + код) ---- */
+
+.product-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  white-space: normal;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+.product-name {
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.product-code {
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.01em;
+}
+
+/* Фолбэк, когда названия ещё нет — код становится основным текстом. */
+.product-name--code {
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-muted);
+}
+
+.subtitle-code {
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  margin: -0.4rem 0 1.1rem;
+}
+
+/* Числовые колонки — моноширинные цифры, выравнивание по правому краю. */
+td.num {
+  font-variant-numeric: tabular-nums;
+}
+
+td.ts {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
+/* ---- бейджи действий биддера ---- */
+
+td .badge {
+  margin-left: 0;
+}
+
+.action-raise {
+  background: rgba(52, 211, 153, 0.14);
+  color: var(--success);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.action-lower {
+  background: rgba(251, 191, 36, 0.14);
+  color: var(--warning);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.action-hold {
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+}
+
+.action-pause {
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--danger);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+/* ---- индикатор здоровья TACoS ---- */
+
+.tacos {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.tacos-good { color: var(--success); background: rgba(52, 211, 153, 0.12); }
+.tacos-warn { color: var(--warning); background: rgba(251, 191, 36, 0.12); }
+.tacos-bad  { color: var(--danger);  background: rgba(255, 107, 107, 0.12); }
+.tacos-na   { color: var(--text-faint); }
+
 /* ---- логин ---- */
 
 .login-wrap {
@@ -407,4 +502,49 @@ tr:last-child td {
   .card {
     padding: 1rem;
   }
+}
+
+/* ---- пагинация ---- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+}
+
+.pager .page-info {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-right: auto;
+}
+
+.pager a,
+.pager span.num {
+  display: inline-block;
+  min-width: 2rem;
+  padding: 0.35rem 0.6rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.pager a:hover {
+  border-color: var(--border-strong);
+  color: var(--accent-hover);
+}
+
+.pager span.num.current {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pager span.disabled {
+  opacity: 0.4;
 }

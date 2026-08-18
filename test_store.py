@@ -219,6 +219,35 @@ def test_snapshot_campaign_id_and_lists():
     print("✓ store: campaign_id в снапшотах + get_campaign_skus/get_latest_snapshot_ts")
 
 
+def test_product_names_and_sku_map():
+    import tempfile, os
+    p = os.path.join(tempfile.mkdtemp(), "t.db")
+    st = Store(p)
+    try:
+        # снапшоты дают мост sku -> merchant_sku (свежий побеждает)
+        st.save_products_snapshot([_mk_product("A", merchant_sku="mA", bid=10),
+                                   _mk_product("B", merchant_sku="mB", bid=20)],
+                                  ts=100, campaign_id="C1")
+        st.put_product_names({"mA": "Электробритва X", "mB": "Триммер Y"}, ts=100)
+        # sku_name_map стыкует sku->merchant_sku->name
+        assert st.get_sku_name_map() == {"A": "Электробритва X", "B": "Триммер Y"}
+        # get_campaign_skus подтягивает name LEFT JOIN-ом
+        by = {r["sku"]: r for r in st.get_campaign_skus("C1")}
+        assert by["A"]["name"] == "Электробритва X"
+        # товар без имени: name = None, в sku_name_map его нет
+        st.save_products_snapshot([_mk_product("Z", merchant_sku="mZ", bid=5)],
+                                  ts=100, campaign_id="C1")
+        assert "Z" not in st.get_sku_name_map()
+        assert {r["sku"]: r["name"] for r in st.get_campaign_skus("C1")}["Z"] is None
+        # пустое имя не затирает известное, апсерт обновляет
+        st.put_product_names({"mA": "", "mB": "Триммер Y2"}, ts=200)
+        m = st.get_sku_name_map()
+        assert m["A"] == "Электробритва X" and m["B"] == "Триммер Y2"
+    finally:
+        st.close()
+    print("✓ store: product_names + get_sku_name_map + name в get_campaign_skus")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -232,5 +261,6 @@ if __name__ == "__main__":
     test_settings_audit()
     test_config_overrides_crud()
     test_snapshot_campaign_id_and_lists()
+    test_product_names_and_sku_map()
     print("-" * 60)
     print("✓ Все проверки store прошли")

@@ -6,6 +6,20 @@
   'raise': 'Повышение', 'lower': 'Снижение', 'hold': 'Без изменений', 'pause': 'Мин. ставка',
 } %}
 
+{# Ячейка товара: крупно название, мелко-серым код SKU. Если названия ещё нет
+   (по товару не было заказов), показываем код как основной текст. #}
+{% macro product_cell(sku) %}
+  {% set nm = sku_names.get(sku) %}
+  <div class="product-cell">
+    {% if nm %}
+      <span class="product-name">{{ nm }}</span>
+      <span class="product-code">{{ sku }}</span>
+    {% else %}
+      <span class="product-name product-name--code">{{ sku }}</span>
+    {% endif %}
+  </div>
+{% endmacro %}
+
 <h1>Дашборд</h1>
 
 {% if last_snapshot_ts %}
@@ -24,31 +38,31 @@
 
 <p class="lead">Данные за {{ day }} — решения биддера, TACoS и текущие ставки по SKU из <code>db/autopilot.db</code>.</p>
 
-<h2>Решения за день</h2>
+<h2>Решения за день — по товарам</h2>
 <div class="table-wrap">
-  {% if decisions %}
+  {% if decisions_by_sku %}
   <table>
     <thead>
       <tr>
-        <th>Время</th>
-        <th>Кампания</th>
-        <th>SKU</th>
-        <th>Действие</th>
-        <th>Ставка</th>
-        <th>Причина</th>
+        <th>Товар</th>
+        <th>Решений</th>
         <th>Применено</th>
+        <th>Последнее действие</th>
+        <th>Последняя ставка, ₸</th>
+        <th>Обновлено</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
-      {% for d in decisions %}
+      {% for s in decisions_by_sku %}
       <tr>
-        <td>{{ d.ts | dt }}</td>
-        <td>{{ d.campaign_id or '—' }}</td>
-        <td>{{ d.sku }}</td>
-        <td>{{ action_labels.get(d.action, d.action) }}</td>
-        <td>{{ d.old_bid }} → {{ d.new_bid }} ₸</td>
-        <td>{{ d.reason }}</td>
-        <td>{{ "да" if d.applied else "нет" }}</td>
+        <td>{{ product_cell(s.sku) }}</td>
+        <td>{{ s.n }}</td>
+        <td>{{ s.applied_n or 0 }} / {{ s.n }}</td>
+        <td><span class="badge action-{{ s.last_action }}">{{ action_labels.get(s.last_action, s.last_action) }}</span></td>
+        <td>{{ s.last_new_bid if s.last_new_bid is not none else "—" }}</td>
+        <td class="ts">{{ s.last_ts | dt }}</td>
+        <td><a href="/decisions/{{ s.sku }}">Все решения →</a></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -64,7 +78,7 @@
   <table>
     <thead>
       <tr>
-        <th>SKU</th>
+        <th>Товар</th>
         <th>TACoS</th>
         <th>Расход, ₸</th>
         <th>Выручка, ₸</th>
@@ -73,12 +87,15 @@
     </thead>
     <tbody>
       {% for t in tacos %}
+      {% set health = 'good' if (t.tacos is not none and t.tacos < 0.10)
+                 else 'warn' if (t.tacos is not none and t.tacos < 0.18)
+                 else 'bad' if t.tacos is not none else 'na' %}
       <tr>
-        <td>{{ t.sku }}</td>
-        <td>{{ "%.1f"|format(t.tacos * 100) ~ "%" if t.tacos is not none else "—" }}</td>
-        <td>{{ "%.0f"|format(t.cost) if t.cost is not none else "—" }}</td>
-        <td>{{ "%.0f"|format(t.revenue) if t.revenue is not none else "—" }}</td>
-        <td>{{ t.bid if t.bid is not none else "—" }}</td>
+        <td>{{ product_cell(t.sku) }}</td>
+        <td><span class="tacos tacos-{{ health }}">{{ "%.1f"|format(t.tacos * 100) ~ "%" if t.tacos is not none else "—" }}</span></td>
+        <td class="num">{{ "%.0f"|format(t.cost) if t.cost is not none else "—" }}</td>
+        <td class="num">{{ "%.0f"|format(t.revenue) if t.revenue is not none else "—" }}</td>
+        <td class="num">{{ t.bid if t.bid is not none else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -122,8 +122,52 @@ def test_dashboard_shows_decisions_from_db():
     c.post("/login", data={"username": "admin", "password": "secret"})
     r = c.get("/")
     assert r.status_code == 200
-    assert "SKU1" in r.text and "TACoS высокий" in r.text
-    print("✓ webui: дашборд показывает решения из БД")
+    # Дашборд теперь показывает сводку по товару со ссылкой, а причина — на
+    # отдельной странице товара.
+    assert "SKU1" in r.text
+    assert "/decisions/SKU1" in r.text
+    assert "TACoS высокий" not in r.text
+    print("✓ webui: дашборд показывает сводку решений по товарам со ссылкой")
+
+
+def test_decisions_page_paginates_per_sku():
+    c, rules = _client()
+    from core.store import Store
+    from core.rules import Decision
+    import time as _t
+    db = os.environ["DB_PATH"]
+    st = Store(db)
+    day = __import__("datetime").date.today().isoformat()
+    base = int(_t.time())
+    # 25 решений по SKU1 → 2 страницы по 20; плюс одно по SKU2 (не должно течь)
+    for i in range(25):
+        st.log_decision(
+            Decision("SKU1", "M1", 10 + i, 8 + i, "raise", "slow", f"причина-{i}"),
+            ts=base + i, day=day, applied=bool(i % 2), campaign_id="C1")
+    st.log_decision(Decision("SKU2", "M2", 5, 5, "hold", "slow", "чужая-причина"),
+                    ts=base + 999, day=day, applied=True, campaign_id="C2")
+    st.close()
+    c.post("/login", data={"username": "admin", "password": "secret"})
+
+    # страница 1: 20 строк, ссылка на 2-ю страницу, чужой SKU2 не просочился
+    r1 = c.get("/decisions/SKU1")
+    assert r1.status_code == 200
+    assert "причина-0" in r1.text and "причина-19" in r1.text
+    assert "причина-20" not in r1.text
+    assert "чужая-причина" not in r1.text
+    assert "?page=2" in r1.text
+
+    # страница 2: остаток (5 строк)
+    r2 = c.get("/decisions/SKU1?page=2")
+    assert r2.status_code == 200
+    assert "причина-20" in r2.text and "причина-24" in r2.text
+    assert "причина-0" not in r2.text
+
+    # выход за диапазон — клиппится к последней странице, не падает
+    r3 = c.get("/decisions/SKU1?page=99")
+    assert r3.status_code == 200
+    assert "причина-24" in r3.text
+    print("✓ webui: страница товара — пагинация по 20, без утечки чужого SKU")
 
 
 def test_campaign_settings_get_and_save():
@@ -229,6 +273,7 @@ if __name__ == "__main__":
     test_dry_run_toggle()
     test_settings_save_does_not_touch_dry_run()
     test_dashboard_shows_decisions_from_db()
+    test_decisions_page_paginates_per_sku()
     test_campaign_settings_get_and_save()
     test_campaign_settings_rejects_invalid_input()
     test_sku_settings_inherits_campaign_then_saves()

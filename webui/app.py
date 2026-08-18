@@ -182,7 +182,7 @@ def create_app() -> FastAPI:
         day = datetime.now(ALMATY).date().isoformat()
         store = Store(db_path)
         try:
-            decisions = store.get_decisions_for_day(day)
+            decisions_by_sku = store.get_decisions_summary_for_day(day)
             tacos_rows = store.get_tacos_daily(day)
             # Текущая ставка по SKU — из последнего снапшота товара (bid из
             # products_snapshot); присоединяем к строке TACoS.
@@ -190,13 +190,37 @@ def create_app() -> FastAPI:
                 snap = store.get_latest_snapshot(row["sku"])
                 row["bid"] = snap["bid"] if snap else None
             last_ts = store.get_latest_snapshot_ts()
+            sku_names = store.get_sku_name_map()
         finally:
             store.close()
         budgets = _get_campaign_budgets()
         return templates.TemplateResponse(request, "dashboard.html", {
             "user": user(request), "day": day,
-            "decisions": decisions, "tacos": tacos_rows, "budgets": budgets,
-            "last_snapshot_ts": last_ts})
+            "decisions_by_sku": decisions_by_sku, "tacos": tacos_rows,
+            "budgets": budgets, "last_snapshot_ts": last_ts,
+            "sku_names": sku_names})
+
+    @app.get("/decisions/{sku}", response_class=HTMLResponse)
+    def decisions_for_sku(request: Request, sku: str, page: int = 1):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        per_page = 20
+        page = max(1, page)
+        day = datetime.now(ALMATY).date().isoformat()
+        store = Store(db_path)
+        try:
+            total = store.count_decisions_for_sku_day(day, sku)
+            pages = max(1, (total + per_page - 1) // per_page)
+            page = min(page, pages)
+            decisions = store.get_decisions_for_sku_day(
+                day, sku, per_page, (page - 1) * per_page)
+            sku_name = store.get_sku_name_map().get(sku)
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "decisions_sku.html", {
+            "user": user(request), "day": day, "sku": sku, "sku_name": sku_name,
+            "decisions": decisions, "page": page, "pages": pages,
+            "total": total, "per_page": per_page})
 
     @app.post("/refresh")
     def refresh(request: Request):

@@ -58,6 +58,8 @@ def run_revenue_cycle(ctx: WorkerContext):
     ts = int(now.timestamp())
     revenue = ctx.revenue_collector.collect(window_days=ctx.window_days, now=now)
     ctx.store.put_revenue_cache(revenue, ts=ts)
+    # Названия товаров едут в OrderEntry.name — сохраняем их для подписи дашборда.
+    ctx.store.put_product_names({ms: r.name for ms, r in revenue.items()}, ts=ts)
     log.info("Revenue-цикл: обновлено SKU в кэше = %s", len(revenue))
     return revenue
 

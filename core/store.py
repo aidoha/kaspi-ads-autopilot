@@ -71,6 +71,13 @@ class Store:
                 user TEXT, ts INTEGER,
                 PRIMARY KEY (scope, scope_id, field)
             );
+
+            -- Человекочитаемые названия товаров. Ключ — merchant_sku (offer.code),
+            -- т.к. эндпоинт товаров кампании названий не отдаёт, а Shop API отдаёт
+            -- их в позициях заказа (OrderEntry.name). Заполняется revenue-циклом.
+            CREATE TABLE IF NOT EXISTS product_names (
+                merchant_sku TEXT PRIMARY KEY, name TEXT, ts INTEGER
+            );
         """)
         # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
         cols = {r["name"] for r in
@@ -119,14 +126,47 @@ class Store:
         return dict(row) if row else None
 
     def get_campaign_skus(self, campaign_id: str) -> list[dict]:
-        """Уникальные SKU кампании со ставкой из свежего снапшота (для UI-списка)."""
+        """Уникальные SKU кампании со ставкой из свежего снапшота (для UI-списка).
+        Дополнительно подтягивает человекочитаемое название (LEFT JOIN, может быть
+        None, если по товару ещё не было заказов)."""
         rows = self._conn.execute(
-            """SELECT sku, merchant_sku, bid, MAX(ts) AS ts
-               FROM products_snapshot WHERE campaign_id=?
-               GROUP BY sku ORDER BY sku""",
+            """SELECT ps.sku, ps.merchant_sku, ps.bid, ps.ts, pn.name AS name
+               FROM (SELECT sku, merchant_sku, bid, MAX(ts) AS ts
+                     FROM products_snapshot WHERE campaign_id=?
+                     GROUP BY sku) ps
+               LEFT JOIN product_names pn ON pn.merchant_sku = ps.merchant_sku
+               ORDER BY ps.sku""",
             (campaign_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- названия товаров ---------------------------------------------------
+
+    def put_product_names(self, names: dict[str, str], ts: int):
+        """Апсертит {merchant_sku: name}. Пустые имена игнорируются, чтобы не
+        затирать ранее известное название пустышкой из заказа без имени."""
+        rows = [(ms, nm, ts) for ms, nm in names.items() if ms and nm]
+        if not rows:
+            return
+        self._conn.executemany(
+            """INSERT INTO product_names (merchant_sku, name, ts)
+               VALUES (?,?,?)
+               ON CONFLICT(merchant_sku) DO UPDATE SET
+                 name=excluded.name, ts=excluded.ts""",
+            rows,
+        )
+        self._conn.commit()
+
+    def get_sku_name_map(self) -> dict[str, str]:
+        """{sku: name} — мост sku→merchant_sku берётся из свежего снапшота,
+        merchant_sku→name из product_names. Для подписи строк дашборда."""
+        rows = self._conn.execute(
+            """SELECT ps.sku AS sku, pn.name AS name
+               FROM (SELECT sku, merchant_sku, MAX(ts) AS ts
+                     FROM products_snapshot GROUP BY sku) ps
+               JOIN product_names pn ON pn.merchant_sku = ps.merchant_sku""",
+        ).fetchall()
+        return {r["sku"]: r["name"] for r in rows if r["name"]}
 
     def get_latest_snapshot_ts(self) -> int | None:
         row = self._conn.execute(
@@ -216,6 +256,52 @@ class Store:
         """Все решения за день по порядку — для дневного разбора LLM-аналитиком."""
         rows = self._conn.execute(
             "SELECT * FROM decisions_log WHERE day=? ORDER BY ts", (day,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_decisions_summary_for_day(self, day: str) -> list[dict]:
+        """Сводка решений за день по товарам — по одной строке на SKU.
+
+        Для дашборда: количество решений, последнее действие/ставка и сколько
+        из них применено. Товары с самой свежей активностью сверху.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT
+                sku,
+                COUNT(*)         AS n,
+                SUM(applied)     AS applied_n,
+                MAX(ts)          AS last_ts,
+                (SELECT action  FROM decisions_log d2
+                   WHERE d2.sku = d.sku AND d2.day = d.day
+                   ORDER BY ts DESC LIMIT 1) AS last_action,
+                (SELECT new_bid FROM decisions_log d2
+                   WHERE d2.sku = d.sku AND d2.day = d.day
+                   ORDER BY ts DESC LIMIT 1) AS last_new_bid
+            FROM decisions_log d
+            WHERE day = ?
+            GROUP BY sku
+            ORDER BY last_ts DESC
+            """,
+            (day,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_decisions_for_sku_day(self, day: str, sku: str) -> int:
+        """Число решений по товару за день — для расчёта числа страниц."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM decisions_log WHERE day=? AND sku=?",
+            (day, sku),
+        ).fetchone()
+        return row["n"] if row else 0
+
+    def get_decisions_for_sku_day(self, day: str, sku: str,
+                                  limit: int, offset: int) -> list[dict]:
+        """Страница решений по одному товару за день (по порядку времени)."""
+        rows = self._conn.execute(
+            "SELECT * FROM decisions_log WHERE day=? AND sku=? "
+            "ORDER BY ts LIMIT ? OFFSET ?",
+            (day, sku, limit, offset),
         ).fetchall()
         return [dict(r) for r in rows]
 

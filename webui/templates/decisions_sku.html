@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Решения {{ sku }} — Kaspi Ads Autopilot{% endblock %}
+{% block content %}
+
+{% set action_labels = {
+  'raise': 'Повышение', 'lower': 'Снижение', 'hold': 'Без изменений', 'pause': 'Мин. ставка',
+} %}
+
+<p class="lead"><a href="/">← Дашборд</a></p>
+
+<h1>{% if sku_name %}{{ sku_name }}{% else %}Решения по товару{% endif %}</h1>
+<p class="subtitle-code">SKU {{ sku }}</p>
+<p class="lead">За {{ day }} — всего {{ total }} решени{{ 'е' if total % 10 == 1 and total % 100 != 11 else 'я' if 2 <= total % 10 <= 4 and not 12 <= total % 100 <= 14 else 'й' }}.</p>
+
+<div class="table-wrap">
+  {% if decisions %}
+  <table>
+    <thead>
+      <tr>
+        <th>Время</th>
+        <th>Кампания</th>
+        <th>Действие</th>
+        <th>Ставка</th>
+        <th>Причина</th>
+        <th>Применено</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in decisions %}
+      <tr>
+        <td>{{ d.ts | dt }}</td>
+        <td>{{ d.campaign_id or '—' }}</td>
+        <td>{{ action_labels.get(d.action, d.action) }}</td>
+        <td>{{ d.old_bid }} → {{ d.new_bid }} ₸</td>
+        <td>{{ d.reason }}</td>
+        <td>{{ "да" if d.applied else "нет" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">По этому товару решений за сегодня ещё нет.</p>
+  {% endif %}
+</div>
+
+{% if pages > 1 %}
+<nav class="pager" aria-label="Постраничная навигация">
+  <span class="page-info">
+    {{ (page - 1) * per_page + 1 }}–{{ [page * per_page, total] | min }} из {{ total }}
+  </span>
+  {% if page > 1 %}
+    <a href="/decisions/{{ sku }}?page={{ page - 1 }}" rel="prev">‹</a>
+  {% else %}
+    <span class="disabled num">‹</span>
+  {% endif %}
+  {% for p in range(1, pages + 1) %}
+    {% if p == page %}
+      <span class="num current">{{ p }}</span>
+    {% else %}
+      <a href="/decisions/{{ sku }}?page={{ p }}">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page < pages %}
+    <a href="/decisions/{{ sku }}?page={{ page + 1 }}" rel="next">›</a>
+  {% else %}
+    <span class="disabled num">›</span>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% endblock %}

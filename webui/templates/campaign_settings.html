@@ -60,7 +60,7 @@
   <table>
     <thead>
       <tr>
-        <th>SKU</th>
+        <th>Товар</th>
         <th>merchant_sku</th>
         <th>Текущая ставка, ₸</th>
         <th></th>
@@ -69,9 +69,18 @@
     <tbody>
       {% for s in skus %}
       <tr>
-        <td>{{ s.sku }}</td>
-        <td>{{ s.merchant_sku }}</td>
-        <td>{{ s.bid }}</td>
+        <td>
+          <div class="product-cell">
+            {% if s.name %}
+              <span class="product-name">{{ s.name }}</span>
+              <span class="product-code">{{ s.sku }}</span>
+            {% else %}
+              <span class="product-name product-name--code">{{ s.sku }}</span>
+            {% endif %}
+          </div>
+        </td>
+        <td class="num">{{ s.merchant_sku }}</td>
+        <td class="num">{{ s.bid }}</td>
         <td><a href="/settings/sku/{{ campaign_id }}/{{ s.sku }}">Настройки товара</a></td>
       </tr>
       {% endfor %}
