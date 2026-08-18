@@ -26,6 +26,15 @@ log = logging.getLogger("webui")
 _HERE = os.path.dirname(__file__)
 ALMATY = ZoneInfo("Asia/Almaty")
 
+
+def fmt_ts_almaty(ts) -> str:
+    """Эпоху-секунды → строка времени в Алматы. Явная зона, а не локальная зона
+    сервера: на VPS (UTC) без неё дашборд показывал UTC и создавал ложное
+    впечатление, что биддер «встал» несколько часов назад."""
+    if ts is None:
+        return ""
+    return datetime.fromtimestamp(int(ts), ALMATY).strftime("%Y-%m-%d %H:%M:%S")
+
 # Кэш бюджетов кампаний на модульном уровне: дашборд может открываться часто,
 # а бюджеты живут в кабинете (Playwright-логин, PUT-чувствительная сессия) —
 # не хотим долбить его на каждый рендер и конфликтовать с воркером за сессию.
@@ -137,8 +146,7 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=os.path.join(_HERE, "static")), name="static")
     templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
-    templates.env.filters["dt"] = lambda ts: (
-        datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S") if ts is not None else "")
+    templates.env.filters["dt"] = fmt_ts_almaty
 
     rules_path = os.environ.get("RULES_CONFIG", "config/rules.yaml")
     db_path = os.environ.get("DB_PATH", "db/autopilot.db")

@@ -265,7 +265,23 @@ def test_refresh_requires_login_and_is_best_effort():
     print("✓ webui: /refresh — логин обязателен, best-effort не падает без сессии кабинета")
 
 
+def test_dt_filter_renders_almaty_not_server_tz():
+    """Фильтр времени в дашборде должен показывать Алматы (UTC+5) независимо от
+    таймзоны сервера. На VPS (UTC) старая версия рисовала UTC → «биддер встал»."""
+    from datetime import datetime, timezone, timedelta
+    from webui.app import fmt_ts_almaty
+    ts = 1755519664  # произвольный момент
+    got = fmt_ts_almaty(ts)
+    # Алматы в 2026 — стабильно UTC+5, без перехода на летнее время
+    expected = (datetime.fromtimestamp(ts, timezone.utc)
+                + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+    assert got == expected, (got, expected)
+    assert fmt_ts_almaty(None) == ""
+    print("✓ webui: dt-фильтр рендерит Алматы (UTC+5), а не таймзону сервера")
+
+
 if __name__ == "__main__":
+    test_dt_filter_renders_almaty_not_server_tz()
     test_password_hash_roundtrip()
     test_settings_requires_login()
     test_login_and_edit_settings()
