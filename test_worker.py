@@ -209,6 +209,34 @@ def test_run_tick_uses_per_sku_overrides():
     print("✓ worker: run_tick резолвит конфиг на SKU + пишет campaign_id")
 
 
+def test_apply_logs_each_batch_before_next_put():
+    """Боевой partial-write: если поздний PUT падает, аудит уже применённого
+    (раннего) батча обязан остаться. Иначе ставка в кабинете изменена, а следов нет."""
+    st = store_with_revenue({})
+    st.set_override("sku", "B", "max_bid_step", "5", "test", 1)  # B → другой new_bid → другой батч
+
+    class BoomOnSecondPut(FakeMarketing):
+        def update_bids(self, campaign_id, sku_list, bid):
+            self._calls = getattr(self, "_calls", 0) + 1
+            if self._calls >= 2:
+                raise RuntimeError("кабинет отдал 500 на втором PUT")
+            return super().update_bids(campaign_id, sku_list, bid)
+
+    fm = BoomOnSecondPut([cp(sku="A", merchant_sku="MA", carts=0, clicks=100, bid=10),
+                          cp(sku="B", merchant_sku="MB", carts=0, clicks=100, bid=10)],
+                         dry_run=False)
+    try:
+        run_tick(ctx(fm, st, dry_run=False), loop="fast", campaign_id="C1", daily_budget=0.0)
+    except RuntimeError:
+        pass  # второй PUT падает — ожидаемо; проверяем, что первый не потерян
+
+    assert len(fm.puts) == 1, fm.puts                     # первый батч реально применён
+    applied_sku = fm.puts[0][0][0]
+    logged = {r["sku"] for r in st.get_decisions_for_day(DAY)}
+    assert applied_sku in logged, f"применённая ставка {applied_sku} потеряна из аудита: {logged}"
+    print("✓ worker: аудит применённого батча не теряется при падении позднего PUT")
+
+
 def test_load_cfg_safe_hot_reload_and_fallback():
     from core.settings_io import save_settings, load_settings
     p = os.path.join(tempfile.mkdtemp(), "rules.yaml")
@@ -238,6 +266,7 @@ if __name__ == "__main__":
     test_run_cycle_empty_is_noop()
     test_run_cycle_passes_campaign_budget_to_fast_brake()
     test_run_tick_uses_per_sku_overrides()
+    test_apply_logs_each_batch_before_next_put()
     test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

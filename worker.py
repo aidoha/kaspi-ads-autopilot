@@ -151,24 +151,27 @@ def _apply_and_log(ctx: WorkerContext, decisions: list, day: str, ts: int,
     поэтому применяется тем же update_bids, что raise/lower.
     Каждое решение (включая hold) идёт в аудит-лог.
     """
-    # TODO(live): PUT (update_bids) уходит в первом цикле, log_decision — только
-    # во втором; если в боевом режиме поздний PUT упадёт с исключением, ранние
-    # успешные PUT останутся без строки в аудит-логе (частичная запись).
-    # Сейчас не кусается: dry_run=true.
-    by_bid: dict[float, list[str]] = defaultdict(list)
+    # Инвариант аудита (боевой режим): каждый успешно применённый батч пишется
+    # в лог СРАЗУ после своего PUT, до следующего. Иначе падение позднего PUT
+    # оставило бы ранее изменённые в кабинете ставки без строки в аудите
+    # (частичная запись — деньги двинулись, следов нет).
+    by_bid: dict[float, list] = defaultdict(list)
+    holds: list = []
     for d in decisions:
         if d.action in ("raise", "lower", "pause"):
-            by_bid[d.new_bid].append(d.sku)
+            by_bid[d.new_bid].append(d)
+        else:
+            holds.append(d)
 
-    sent_skus: dict[str, bool] = {}
-    for bid, skus in by_bid.items():
-        result = ctx.marketing.update_bids(campaign_id, skus, bid)
-        for sku in skus:
-            sent_skus[sku] = bool(result.get("sent"))
+    for bid, batch in by_bid.items():
+        result = ctx.marketing.update_bids(campaign_id, [d.sku for d in batch], bid)
+        applied = bool(result.get("sent"))
+        for d in batch:  # аудит этого батча — до следующего PUT
+            ctx.store.log_decision(d, ts=ts, day=day, applied=applied,
+                                   campaign_id=campaign_id)
 
-    for d in decisions:
-        applied = sent_skus.get(d.sku, False)
-        ctx.store.log_decision(d, ts=ts, day=day, applied=applied,
+    for d in holds:  # решения без PUT (hold) — тоже в аудит
+        ctx.store.log_decision(d, ts=ts, day=day, applied=False,
                                campaign_id=campaign_id)
 
 
