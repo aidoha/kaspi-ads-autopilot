@@ -1,0 +1,8 @@
+# positions.yaml — что трекаем в поиске Kaspi.
+# product_id — id карточки Kaspi (последняя числовая группа в URL карточки).
+max_depth: 100
+cities:
+  - {name: "Алматы", city_id: "750000000", zone: "Magnum_ZONE1"}
+  - {name: "Астана", city_id: "710000000", zone: "ZONE_TODO"}
+track:
+  - {keyword: "аэрогриль", product_id: "REPLACE_ME", label: "Наш товар"}
