@@ -322,7 +322,7 @@ def main():  # pragma: no cover
     sched.add_job(analyst_job, "cron", hour="22", id="analyst")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/10:00,20:00, analyst/22:00 (Алматы)",
+             "fast/5м, slow/10:00,20:00, analyst/22:00, positions/15м (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные")
     sched.start()
 

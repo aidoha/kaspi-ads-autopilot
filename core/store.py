@@ -378,8 +378,10 @@ class Store:
 
     def get_position_series(self, keyword, city, limit=200):
         cur = self._conn.execute(
-            "SELECT ts, our_rank, total FROM position_snapshots "
-            "WHERE keyword=? AND city=? ORDER BY ts ASC LIMIT ?",
+            "SELECT ts, our_rank, total FROM ("
+            "  SELECT ts, our_rank, total FROM position_snapshots "
+            "  WHERE keyword=? AND city=? ORDER BY ts DESC LIMIT ?"
+            ") ORDER BY ts ASC",
             (keyword, city, limit),
         )
         return cur.fetchall()

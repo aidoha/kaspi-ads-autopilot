@@ -35,6 +35,15 @@ def test_latest_returns_listing_json_and_none_rank():
     s.close()
 
 
+def test_series_returns_newest_window_in_ascending_order():
+    s = new_store()
+    for t in range(1, 11):          # ts = 1..10
+        s.put_position_snapshot(t, "kw", "Алматы", "9", t, 100, "[]")
+    rows = s.get_position_series("kw", "Алматы", limit=3)
+    assert [r["ts"] for r in rows] == [8, 9, 10]        # newest 3, ascending
+    s.close()
+
+
 def test_list_tracked_pairs_distinct():
     s = new_store()
     s.put_position_snapshot(1, "kw", "Алматы", "9", 1, 1, "[]")
