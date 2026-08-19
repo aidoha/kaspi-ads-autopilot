@@ -386,7 +386,7 @@ class Store:
 
     def get_latest_position(self, keyword, city):
         cur = self._conn.execute(
-            "SELECT ts, our_rank, total, listing_json FROM position_snapshots "
+            "SELECT ts, our_rank, total, listing_json, product_id FROM position_snapshots "
             "WHERE keyword=? AND city=? ORDER BY ts DESC LIMIT 1",
             (keyword, city),
         )

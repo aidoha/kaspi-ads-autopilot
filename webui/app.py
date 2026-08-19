@@ -2,6 +2,7 @@
 (воркер перечитывает на лету), читает db/autopilot.db для дашборда."""
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -207,6 +208,32 @@ def create_app() -> FastAPI:
             "decisions_by_sku": decisions_by_sku, "tacos": tacos_rows,
             "budgets": budgets, "last_snapshot_ts": last_ts,
             "sku_names": sku_names})
+
+    @app.get("/positions", response_class=HTMLResponse)
+    def positions(request: Request):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        store = Store(db_path)
+        try:
+            pairs = store.list_tracked_pairs()
+            blocks = []
+            for p in pairs:
+                latest = store.get_latest_position(p["keyword"], p["city"])
+                series = store.get_position_series(p["keyword"], p["city"])
+                listing = json.loads(latest["listing_json"]) if latest else []
+                blocks.append({
+                    "keyword": p["keyword"], "city": p["city"],
+                    "our_rank": latest["our_rank"] if latest else None,
+                    "total": latest["total"] if latest else 0,
+                    "ts": fmt_ts_almaty(latest["ts"]) if latest else "—",
+                    "ranks": [r["our_rank"] for r in series],
+                    "listing": listing,
+                    "our_product_id": latest["product_id"] if latest else "",
+                })
+        finally:
+            store.close()
+        return templates.TemplateResponse(request, "positions.html", {
+            "user": user(request), "blocks": blocks})
 
     @app.get("/decisions/{sku}", response_class=HTMLResponse)
     def decisions_for_sku(request: Request, sku: str, page: int = 1):
