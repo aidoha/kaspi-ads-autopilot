@@ -308,10 +308,17 @@ def main():  # pragma: no cover
                   id="fast")
     sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron", hour="10,20",
                   id="slow")
-    sched.add_job(
-        lambda: run_position_tick(store, pos_cfg),
-        "interval", minutes=15, id="positions", max_instances=1,
-        coalesce=True, next_run_time=datetime.now(ALMATY))
+    # Позиционный трекер шлём отдельным флагом: с IP датацентра Kaspi режет
+    # веб-каталог (429), поэтому на VPS job держим выключенным, пока не подключим
+    # KZ-резидентный прокси (KASPI_SEARCH_PROXY). На резидентном IP — включён.
+    positions_enabled = os.environ.get("POSITIONS_ENABLED", "1") != "0"
+    if positions_enabled:
+        sched.add_job(
+            lambda: run_position_tick(store, pos_cfg),
+            "interval", minutes=15, id="positions", max_instances=1,
+            coalesce=True, next_run_time=datetime.now(ALMATY))
+    else:
+        log.info("Позиционный job ВЫКЛЮЧЕН (POSITIONS_ENABLED=0)")
 
     def analyst_job():
         # Дневной разбор для владельца (advisory, не в петле решений).
@@ -322,8 +329,9 @@ def main():  # pragma: no cover
     sched.add_job(analyst_job, "cron", hour="22", id="analyst")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/10:00,20:00, analyst/22:00, positions/15м (Алматы)",
-             cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные")
+             "fast/5м, slow/10:00,20:00, analyst/22:00%s (Алматы)",
+             cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные",
+             ", positions/15м" if positions_enabled else " (positions ВЫКЛ)")
     sched.start()
 
 
