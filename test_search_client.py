@@ -97,6 +97,36 @@ def test_fetch_listing_includes_card_beyond_max_depth_when_found():
     assert lst.cards[100].product_id == "BOUNDARY_PROD"
 
 
+def test_fetch_listing_omits_zone_when_empty():
+    # Zone is optional: empty zone should omit the q= param entirely.
+    # With zone: URL contains "availableInZones". Without zone: URL doesn't contain it.
+    pages = {
+        0: _page([(str(i), f"t{i}") for i in range(100, 112)]),   # 12 cards
+    }
+    calls_with_zone = []
+    calls_without_zone = []
+
+    def fake_get_with_zone(url):
+        calls_with_zone.append(url)
+        return pages[0]
+
+    def fake_get_without_zone(url):
+        calls_without_zone.append(url)
+        return pages[0]
+
+    # Test with non-empty zone
+    lst1 = fetch_listing("test", "750000000", "Magnum_ZONE1",
+                         our_product_id="absent", max_depth=12, http_get=fake_get_with_zone)
+    assert any("availableInZones:Magnum_ZONE1" in u for u in calls_with_zone)
+    assert any("c=750000000" in u for u in calls_with_zone)
+
+    # Test with empty zone
+    lst2 = fetch_listing("test", "750000000", "",
+                         our_product_id="absent", max_depth=12, http_get=fake_get_without_zone)
+    assert not any("availableInZones" in u for u in calls_without_zone)
+    assert any("c=750000000" in u for u in calls_without_zone)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

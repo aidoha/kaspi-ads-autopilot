@@ -64,8 +64,11 @@ def parse_filters_page(data: dict, start_rank: int) -> tuple[list[Card], int]:
 
 def _build_url(keyword: str, city_id: str, zone: str, page: int) -> str:
     q = quote(keyword)
-    return (f"{BASE_URL}?text={q}&page={page}&all=false&fl=true&ui=d"
-            f"&q=:availableInZones:{zone}&i=-1&c={city_id}")
+    url = (f"{BASE_URL}?text={q}&page={page}&all=false&fl=true&ui=d"
+           f"&i=-1&c={city_id}")
+    if zone:
+        url += f"&q=:availableInZones:{zone}"
+    return url
 
 
 def _default_get(url: str) -> dict:
