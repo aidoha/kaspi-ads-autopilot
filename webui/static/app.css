@@ -504,6 +504,27 @@ td .badge {
   }
 }
 
+/* ---- позиции в поиске ---- */
+
+.pos-block {
+  margin-bottom: 1.5rem;
+}
+
+.pos-block h2 {
+  margin-top: 0;
+}
+
+.pos-table .ours {
+  background: rgba(79, 140, 255, 0.15);
+  font-weight: 600;
+}
+
+.spark {
+  color: var(--accent);
+  display: block;
+  margin: 0.5rem 0;
+}
+
 /* ---- пагинация ---- */
 
 .pager {

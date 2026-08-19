@@ -78,6 +78,13 @@ class Store:
             CREATE TABLE IF NOT EXISTS product_names (
                 merchant_sku TEXT PRIMARY KEY, name TEXT, ts INTEGER
             );
+
+            CREATE TABLE IF NOT EXISTS position_snapshots (
+                ts INTEGER, keyword TEXT, city TEXT, product_id TEXT,
+                our_rank INTEGER, total INTEGER, listing_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS ix_pos_kw_city_ts
+                ON position_snapshots(keyword, city, ts);
         """)
         # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
         cols = {r["name"] for r in
@@ -356,3 +363,40 @@ class Store:
             (scope, scope_id, field),
         )
         self._conn.commit()
+
+    # ---- снапшоты позиций ---------------------------------------------------
+
+    def put_position_snapshot(self, ts, keyword, city, product_id,
+                              our_rank, total, listing_json):
+        self._conn.execute(
+            "INSERT INTO position_snapshots "
+            "(ts, keyword, city, product_id, our_rank, total, listing_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (ts, keyword, city, product_id, our_rank, total, listing_json),
+        )
+        self._conn.commit()
+
+    def get_position_series(self, keyword, city, limit=200):
+        cur = self._conn.execute(
+            "SELECT ts, our_rank, total FROM ("
+            "  SELECT ts, our_rank, total FROM position_snapshots "
+            "  WHERE keyword=? AND city=? ORDER BY ts DESC LIMIT ?"
+            ") ORDER BY ts ASC",
+            (keyword, city, limit),
+        )
+        return cur.fetchall()
+
+    def get_latest_position(self, keyword, city):
+        cur = self._conn.execute(
+            "SELECT ts, our_rank, total, listing_json, product_id FROM position_snapshots "
+            "WHERE keyword=? AND city=? ORDER BY ts DESC LIMIT 1",
+            (keyword, city),
+        )
+        return cur.fetchone()
+
+    def list_tracked_pairs(self):
+        cur = self._conn.execute(
+            "SELECT DISTINCT keyword, city FROM position_snapshots "
+            "ORDER BY keyword, city"
+        )
+        return cur.fetchall()

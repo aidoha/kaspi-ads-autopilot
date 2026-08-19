@@ -15,6 +15,7 @@ APScheduler и построение боевых зависимостей — т
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from connectors.search_client import fetch_listing
 from core.config_resolver import resolve_config
 from core.reconcile import reconcile
 from core.rules import RulesConfig, evaluate_fast, evaluate_slow
@@ -62,6 +64,34 @@ def run_revenue_cycle(ctx: WorkerContext):
     ctx.store.put_product_names({ms: r.name for ms, r in revenue.items()}, ts=ts)
     log.info("Revenue-цикл: обновлено SKU в кэше = %s", len(revenue))
     return revenue
+
+
+# ---- тик трекера позиций (органика, HTTP) ----------------------------------
+
+def run_position_tick(store, positions_cfg, now_fn=lambda: datetime.now(ALMATY),
+                      search_fetch=fetch_listing) -> int:
+    """Снимает позицию нашего товара по каждому (keyword × city) и пишет снапшот.
+    Падение по одной паре логируется и пропускается — тик не роняем."""
+    ts = int(now_fn().timestamp())
+    written = 0
+    for item in positions_cfg.track:
+        for city in positions_cfg.cities:
+            try:
+                lst = search_fetch(item.keyword, city.city_id, city.zone,
+                                   item.product_id, positions_cfg.max_depth)
+                listing_json = json.dumps(
+                    [{"rank": c.rank, "product_id": c.product_id, "title": c.title,
+                      "price": c.price, "brand": c.brand, "is_ad": c.is_ad}
+                     for c in lst.cards], ensure_ascii=False)
+                store.put_position_snapshot(
+                    ts, item.keyword, city.name, item.product_id,
+                    lst.our_rank, lst.total, listing_json)
+                written += 1
+            except Exception as e:  # noqa: BLE001 — одна пара не должна ронять тик
+                log.warning("Позиции: пара %s/%s упала: %s",
+                            item.keyword, city.name, e)
+    log.info("Позиции-тик: записано снапшотов = %s", written)
+    return written
 
 
 # ---- ставочный тик ---------------------------------------------------------
@@ -238,6 +268,10 @@ def main():  # pragma: no cover
     merchant = MerchantClient(auth_token=os.environ["KASPI_MERCHANT_TOKEN"])
     revenue_collector = RevenueCollector(merchant)
 
+    from core.positions_config import load_positions_config
+    pos_cfg = load_positions_config(
+        os.environ.get("POSITIONS_CONFIG", "config/positions.yaml"))
+
     def build_ctx() -> WorkerContext:
         # Читаем cfg каждый цикл (hot-reload rules.yaml)
         cfg = load_cfg_safe(rules_path, cfg_holder["cfg"])
@@ -274,6 +308,10 @@ def main():  # pragma: no cover
                   id="fast")
     sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron", hour="10,20",
                   id="slow")
+    sched.add_job(
+        lambda: run_position_tick(store, pos_cfg),
+        "interval", minutes=15, id="positions", max_instances=1,
+        coalesce=True, next_run_time=datetime.now(ALMATY))
 
     def analyst_job():
         # Дневной разбор для владельца (advisory, не в петле решений).
@@ -284,7 +322,7 @@ def main():  # pragma: no cover
     sched.add_job(analyst_job, "cron", hour="22", id="analyst")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/10:00,20:00, analyst/22:00 (Алматы)",
+             "fast/5м, slow/10:00,20:00, analyst/22:00, positions/15м (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные")
     sched.start()
 

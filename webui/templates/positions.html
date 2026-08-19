@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Позиции в поиске — Kaspi Ads Autopilot{% endblock %}
+{% block content %}
+
+<h1>Позиции в поиске</h1>
+<p class="lead">Наш ранг по отслеживаемым парам «запрос × город», история и топ выдачи.</p>
+
+{% if blocks %}
+  {% for b in blocks %}
+    <section class="pos-block card">
+      <h2>{{ b.keyword }} — {{ b.city }}</h2>
+      <p>
+        Наша позиция:
+        <strong>{{ b.our_rank if b.our_rank is not none else "вне топа" }}</strong>
+        из {{ b.total }} · обновлено {{ b.ts }}
+      </p>
+      {% set mx = b.ranks|reject("none")|list %}
+      {% if mx|length > 1 %}
+        {% set top = mx|max %}
+        <svg width="240" height="40" viewBox="0 0 240 40" class="spark" aria-hidden="true">
+          <polyline fill="none" stroke="currentColor" stroke-width="2"
+            points="{% for r in b.ranks %}{{ loop.index0 * (240 / ((b.ranks|length - 1) if b.ranks|length > 1 else 1)) }},{{ (r / top * 34 + 2) if r else 38 }} {% endfor %}"/>
+        </svg>
+      {% endif %}
+      <div class="table-wrap">
+        <table class="pos-table">
+          <thead><tr><th>#</th><th>Товар</th><th>Цена, ₸</th><th>Тип</th></tr></thead>
+          <tbody>
+          {% for c in b.listing %}
+            <tr class="{{ 'ours' if c.product_id == b.our_product_id else '' }}">
+              <td>{{ c.rank }}</td>
+              <td>{{ c.title }}</td>
+              <td class="num">{{ c.price if c.price else "—" }}</td>
+              <td>{{ "Реклама" if c.is_ad else "Органика" }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endfor %}
+{% else %}
+  <p class="empty">Пока нет отслеживаемых позиций — трекер ещё не собрал данные.</p>
+{% endif %}
+{% endblock %}
