@@ -312,10 +312,10 @@ class Store:
 
     def get_decisions_for_sku_day(self, day: str, sku: str,
                                   limit: int, offset: int) -> list[dict]:
-        """Страница решений по одному товару за день (по порядку времени)."""
+        """Страница решений по одному товару за день (сначала свежие)."""
         rows = self._conn.execute(
             "SELECT * FROM decisions_log WHERE day=? AND sku=? "
-            "ORDER BY ts LIMIT ? OFFSET ?",
+            "ORDER BY ts DESC LIMIT ? OFFSET ?",
             (day, sku, limit, offset),
         ).fetchall()
         return [dict(r) for r in rows]

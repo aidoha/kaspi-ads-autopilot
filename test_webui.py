@@ -149,24 +149,24 @@ def test_decisions_page_paginates_per_sku():
     st.close()
     c.post("/login", data={"username": "admin", "password": "secret"})
 
-    # страница 1: 20 строк, ссылка на 2-ю страницу, чужой SKU2 не просочился
+    # страница 1: 20 строк (сначала свежие), ссылка на 2-ю, чужой SKU2 не просочился
     r1 = c.get("/decisions/SKU1")
     assert r1.status_code == 200
-    assert "причина-0" in r1.text and "причина-19" in r1.text
-    assert "причина-20" not in r1.text
+    assert "причина-24" in r1.text and "причина-5" in r1.text
+    assert "причина-4" not in r1.text
     assert "чужая-причина" not in r1.text
     assert "?page=2" in r1.text
 
-    # страница 2: остаток (5 строк)
+    # страница 2: остаток (5 самых старых)
     r2 = c.get("/decisions/SKU1?page=2")
     assert r2.status_code == 200
-    assert "причина-20" in r2.text and "причина-24" in r2.text
-    assert "причина-0" not in r2.text
+    assert "причина-4" in r2.text and "причина-0" in r2.text
+    assert "причина-24" not in r2.text
 
     # выход за диапазон — клиппится к последней странице, не падает
     r3 = c.get("/decisions/SKU1?page=99")
     assert r3.status_code == 200
-    assert "причина-24" in r3.text
+    assert "причина-0" in r3.text
     print("✓ webui: страница товара — пагинация по 20, без утечки чужого SKU")
 
 
