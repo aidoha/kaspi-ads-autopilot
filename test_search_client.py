@@ -127,6 +127,47 @@ def test_fetch_listing_omits_zone_when_empty():
     assert any("c=750000000" in u for u in calls_without_zone)
 
 
+def test_fetch_listing_resilient_to_page_fetch_failure():
+    # Kaspi endpoint pages 2+ return 400; pagination must not crash.
+    # Product not on page 0; page 1 fetch fails; should return page 0 only, not raise.
+    page_0_data = _page([("100", "t100"), ("101", "t101"), ("102", "t102")])
+
+    calls = []
+    def fake_get(url):
+        calls.append(url)
+        if "page=0" in url:
+            return page_0_data
+        # Simulate 400 Bad Request on page 1+
+        raise RuntimeError("400 Bad Request: deep pages not available")
+
+    # Should NOT raise; should return page 0 cards only and continue loop to page 1
+    lst = fetch_listing("test", "123", "Z", our_product_id="999",
+                        max_depth=100, http_get=fake_get)
+    assert lst.total == 2697  # from page_0_data
+    assert len(lst.cards) == 3  # only page 0 cards (didn't crash on page 1 failure)
+    assert lst.our_rank is None  # product not found
+    # Should have tried page 0 and page 1
+    assert any("page=0" in u for u in calls)
+    assert any("page=1" in u for u in calls)
+
+
+def test_fetch_listing_resilient_product_not_found_before_failure():
+    # Product not on page 0; page 1 fails; should return page 0 with our_rank=None.
+    page_0_data = _page([("100", "t100"), ("101", "t101"), ("102", "t102")])
+
+    calls = []
+    def fake_get(url):
+        calls.append(url)
+        if "page=0" in url:
+            return page_0_data
+        raise RuntimeError("400 Bad Request: deep pages not available")
+
+    lst = fetch_listing("test", "123", "Z", our_product_id="ABSENT",
+                        max_depth=100, http_get=fake_get)
+    assert len(lst.cards) == 3  # page 0 only
+    assert lst.our_rank is None  # not found
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

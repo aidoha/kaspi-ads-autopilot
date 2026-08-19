@@ -4,15 +4,19 @@ search_client.py — сбор органической выдачи Kaspi по �
 Тянет GET kaspi.kz/yml/product-view/pl/filters (Kaspi WAF требует браузерный UA и Referer —
 app-UA или отсутствие Referer даёт 403), листает страницы по 12, ищет позицию НАШЕЙ карточки
 по product_id. Никакой авторизации/cookies — это и даёт неперсонализированные («абсолютные»)
-позиции. Клиент НЕ пишет в БД: возвращает Listing, персистит его воркер.
+позиции. Endpoint ограничен ~24 результатами (pages 0–1); глубокая пагинация 400s.
+Клиент НЕ пишет в БД: возвращает Listing, персистит его воркер.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import quote
 
 import httpx
+
+log = logging.getLogger("search")
 
 BASE_URL = "https://kaspi.kz/yml/product-view/pl/filters"
 
@@ -92,7 +96,12 @@ def fetch_listing(keyword: str, city_id: str, zone: str, our_product_id: str,
     page = 0
     while len(all_cards) < max_depth:
         url = _build_url(keyword, city_id, zone, page)
-        payload = get(url)
+        try:
+            payload = get(url)
+        except Exception as e:  # noqa: BLE001 — deep pages 400 on Kaspi; keep what we have
+            log.warning("search: остановка пагинации на page=%s (%s) — возвращаю %d карточек",
+                        page, e, len(all_cards))
+            break
         data = payload.get("data", {}) if isinstance(payload, dict) else {}
         cards, total = parse_filters_page(data, start_rank=len(all_cards) + 1)
         if not cards:
