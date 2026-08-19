@@ -37,8 +37,18 @@ def test_resolve_product_id_from_url():
 
 
 def test_resolve_product_id_prefers_last_numeric_group():
-    url = "https://kaspi.kz/shop/p/model-8-l-99887766/"
+    # path has TWO 5+ digit groups: category 12345, product 99887766 → must pick the last
+    url = "https://kaspi.kz/shop/p/12345-model-8-l-99887766/?c=750000000"
     assert resolve_product_id_from_url(url) == "99887766"
+
+
+def test_resolve_product_id_raises_when_absent():
+    raised = False
+    try:
+        resolve_product_id_from_url("https://kaspi.kz/shop/p/model/")
+    except ValueError:
+        raised = True
+    assert raised, "expected ValueError when no product id in URL"
 
 
 if __name__ == "__main__":
