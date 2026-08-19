@@ -8,17 +8,13 @@ search_client.py — сбор органической выдачи Kaspi по �
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import quote
 
 import httpx
 
-log = logging.getLogger("search")
-
 BASE_URL = "https://kaspi.kz/yml/product-view/pl/filters"
-PAGE_SIZE = 12
 
 # Держать синхронно с merchant_client.BROWSER_UA — WAF режет не-браузерный UA.
 BROWSER_UA = (
@@ -102,5 +98,6 @@ def fetch_listing(keyword: str, city_id: str, zone: str, our_product_id: str,
         if our_rank is not None:
             break
         page += 1
+    cap = max_depth if our_rank is None else max(max_depth, our_rank)
     return Listing(keyword=keyword, city_id=city_id, our_product_id=our_product_id,
-                   our_rank=our_rank, total=total, cards=all_cards[:max_depth])
+                   our_rank=our_rank, total=total, cards=all_cards[:cap])

@@ -66,6 +66,37 @@ def test_fetch_listing_our_rank_none_when_beyond_depth():
     assert lst.our_rank is None
 
 
+def test_fetch_listing_includes_card_beyond_max_depth_when_found():
+    # Regression: our_rank=101 should include rank-101 card even though max_depth=100.
+    # Cards list must be extended to include matched card for safe indexing.
+    pages = {}
+
+    # Create pages 0-7 with 12 cards each (ranks 1-96)
+    for p in range(8):
+        cards_data = [(str(p * 12 + i + 1), f"t{p*12+i+1}") for i in range(12)]
+        pages[p] = _page(cards_data)
+
+    # Page 8: ranks 97-108; our product "BOUNDARY_PROD" at rank 101 (5th card)
+    pages[8] = _page([
+        ("97", "t97"), ("98", "t98"), ("99", "t99"), ("100", "t100"),
+        ("BOUNDARY_PROD", "OUR_RANK_101"),
+        ("102", "t102"), ("103", "t103"), ("104", "t104"), ("105", "t105"),
+        ("106", "t106"), ("107", "t107"), ("108", "t108"),
+    ])
+
+    def fake_get(url):
+        for p in range(9):
+            if f"page={p}" in url:
+                return pages[p]
+        return {"data": {"total": 5000, "cards": []}}
+
+    lst = fetch_listing("test", "123", "ZONE",
+                        our_product_id="BOUNDARY_PROD", max_depth=100, http_get=fake_get)
+    assert lst.our_rank == 101
+    assert len(lst.cards) == 101
+    assert lst.cards[100].product_id == "BOUNDARY_PROD"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
