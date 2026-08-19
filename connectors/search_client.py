@@ -1,10 +1,10 @@
 """
 search_client.py — сбор органической выдачи Kaspi по ключевому слову.
 
-Тянет GET kaspi.kz/yml/product-view/pl/filters (браузерный UA обязателен: app-UA
-даёт 403), листает страницы по 12, ищет позицию НАШЕЙ карточки по product_id.
-Никакой авторизации/cookies — это и даёт неперсонализированные («абсолютные») позиции.
-Клиент НЕ пишет в БД: возвращает Listing, персистит его воркер.
+Тянет GET kaspi.kz/yml/product-view/pl/filters (Kaspi WAF требует браузерный UA и Referer —
+app-UA или отсутствие Referer даёт 403), листает страницы по 12, ищет позицию НАШЕЙ карточки
+по product_id. Никакой авторизации/cookies — это и даёт неперсонализированные («абсолютные»)
+позиции. Клиент НЕ пишет в БД: возвращает Listing, персистит его воркер.
 """
 from __future__ import annotations
 
@@ -69,7 +69,11 @@ def _build_url(keyword: str, city_id: str, zone: str, page: int) -> str:
 
 
 def _default_get(url: str) -> dict:
-    headers = {"User-Agent": BROWSER_UA, "Accept": "application/json"}
+    headers = {
+        "User-Agent": BROWSER_UA,
+        "Accept": "application/json",
+        "Referer": "https://kaspi.kz/shop/search/",
+    }
     r = httpx.get(url, headers=headers, timeout=25)
     r.raise_for_status()
     return r.json()
