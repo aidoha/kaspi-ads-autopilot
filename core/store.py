@@ -17,6 +17,7 @@ import os
 import sqlite3
 
 from connectors.marketing_client import CampaignProduct
+from core.daypart import ProductControl
 from core.revenue import SkuRevenue
 from core.rules import Decision, DailyState
 
@@ -70,6 +71,18 @@ class Store:
                 scope TEXT, scope_id TEXT, field TEXT, value TEXT,
                 user TEXT, ts INTEGER,
                 PRIMARY KEY (scope, scope_id, field)
+            );
+
+            CREATE TABLE IF NOT EXISTS product_control (
+                campaign_id  TEXT,
+                sku          TEXT,
+                enabled      INTEGER DEFAULT 1,
+                window_start INTEGER DEFAULT 0,
+                window_end   INTEGER DEFAULT 24,
+                days_mask    INTEGER DEFAULT 127,
+                user         TEXT,
+                ts           INTEGER,
+                PRIMARY KEY (campaign_id, sku)
             );
 
             -- Человекочитаемые названия товаров. Ключ — merchant_sku (offer.code),
@@ -363,6 +376,55 @@ class Store:
             (scope, scope_id, field),
         )
         self._conn.commit()
+
+    # ---- контроль биддера по товару (дейпартинг/вкл-выкл) --------------------
+
+    def get_product_control(self, campaign_id: str, sku: str) -> ProductControl:
+        row = self._conn.execute(
+            "SELECT enabled, window_start, window_end, days_mask "
+            "FROM product_control WHERE campaign_id=? AND sku=?",
+            (campaign_id, sku),
+        ).fetchone()
+        if row is None:
+            return ProductControl()
+        return ProductControl(bool(row["enabled"]), row["window_start"],
+                              row["window_end"], row["days_mask"])
+
+    def set_product_control(self, campaign_id: str, sku: str, enabled: bool,
+                            window_start: int, window_end: int, days_mask: int,
+                            user: str, ts: int) -> None:
+        self._conn.execute(
+            """INSERT INTO product_control
+                 (campaign_id, sku, enabled, window_start, window_end, days_mask, user, ts)
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(campaign_id, sku) DO UPDATE SET
+                 enabled=excluded.enabled, window_start=excluded.window_start,
+                 window_end=excluded.window_end, days_mask=excluded.days_mask,
+                 user=excluded.user, ts=excluded.ts""",
+            (campaign_id, sku, int(enabled), window_start, window_end,
+             days_mask, user, ts),
+        )
+        self._conn.commit()
+
+    def list_product_control(self, campaign_id: str) -> dict[str, ProductControl]:
+        rows = self._conn.execute(
+            "SELECT sku, enabled, window_start, window_end, days_mask "
+            "FROM product_control WHERE campaign_id=?",
+            (campaign_id,),
+        ).fetchall()
+        return {r["sku"]: ProductControl(bool(r["enabled"]), r["window_start"],
+                                         r["window_end"], r["days_mask"])
+                for r in rows}
+
+    def all_product_controls(self) -> list[tuple[str, str, ProductControl]]:
+        rows = self._conn.execute(
+            "SELECT campaign_id, sku, enabled, window_start, window_end, days_mask "
+            "FROM product_control",
+        ).fetchall()
+        return [(r["campaign_id"], r["sku"],
+                 ProductControl(bool(r["enabled"]), r["window_start"],
+                                r["window_end"], r["days_mask"]))
+                for r in rows]
 
     # ---- снапшоты позиций ---------------------------------------------------
 
