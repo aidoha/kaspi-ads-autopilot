@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from connectors.search_client import fetch_listing
 from core.config_resolver import resolve_config
+from core.daypart import split_by_control
 from core.reconcile import reconcile
 from core.rules import RulesConfig, evaluate_fast, evaluate_slow
 
@@ -133,13 +134,26 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
     def cfg_for(s):
         return resolve_config(ctx.cfg, camp_ov, ctx.store.get_overrides("sku", s.sku))
 
+    # Контрольный слой (дейпартинг/вкл-выкл) — ДО правил. Вне окна → ставка в пол,
+    # выключенный товар → hold. Активные идут в обычные fast/slow.
+    controls = ctx.store.list_product_control(campaign_id)
+    now_local = now.astimezone(ALMATY)
+
+    def min_bid_for(sku):
+        return resolve_config(ctx.cfg, camp_ov,
+                              ctx.store.get_overrides("sku", sku)).min_bid
+
+    active, control_decisions = split_by_control(
+        reconciled, controls, now_local, min_bid_for)
+
     if loop == "fast":
-        decisions = evaluate_fast(reconciled, cfg_for, state, daily_budget)
+        decisions = evaluate_fast(active, cfg_for, state, daily_budget)
     elif loop == "slow":
-        decisions = evaluate_slow(reconciled, cfg_for, state)
+        decisions = evaluate_slow(active, cfg_for, state)
     else:
         raise ValueError(f"неизвестный контур: {loop}")
 
+    decisions = control_decisions + decisions
     _apply_and_log(ctx, decisions, day, ts, campaign_id)
     log.info("Тик %s: решений=%s, изменений=%s", loop, len(decisions),
              sum(1 for d in decisions if d.changed))

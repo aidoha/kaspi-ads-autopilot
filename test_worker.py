@@ -250,6 +250,47 @@ def test_apply_logs_each_batch_before_next_put():
     print("✓ worker: аудит применённого батча не теряется при падении позднего PUT")
 
 
+def _ctx_with(products, dry_run=False, store=None, now=NOW):
+    store = store or store_with_revenue({})
+    mk = FakeMarketing(products, dry_run=dry_run)
+    ctx = WorkerContext(marketing=mk, store=store, cfg=RulesConfig(min_bid=1),
+                        now_fn=now)
+    return ctx, mk, store
+
+
+def test_run_tick_disabled_product_not_touched():
+    # товар выключен в product_control → решение hold, PUT не шлётся даже в бою
+    ctx, mk, store = _ctx_with([cp(sku="S1", bid=18)], dry_run=False)
+    store.set_product_control("C1", "S1", False, 0, 24, 127, "t", 1)
+    decisions = run_tick(ctx, "fast", "C1")
+    d = [x for x in decisions if x.sku == "S1"][0]
+    assert d.action == "hold" and "выключен" in d.reason
+    assert mk.puts == []   # ничего не двинулось в кабинете
+    print("✓ worker: выключенный товар не трогается контуром, hold без PUT")
+
+
+def test_run_tick_out_of_window_lowers_to_floor():
+    # окно 8..23, сейчас 14:00 — В окне; проверим ВНЕ окна отдельным now=3:00
+    night = lambda: datetime(2026, 8, 9, 3, 0, tzinfo=ALMATY)
+    ctx, mk, store = _ctx_with([cp(sku="S1", bid=18)], dry_run=False, now=night)
+    store.set_product_control("C1", "S1", True, 8, 23, 127, "t", 1)
+    decisions = run_tick(ctx, "fast", "C1")
+    d = [x for x in decisions if x.sku == "S1"][0]
+    assert d.action == "lower" and d.new_bid == 1
+    assert (["S1"], 1) in mk.puts   # ставка в пол реально ушла PUT-ом (бой)
+    print("✓ worker: вне рабочего окна ставка режется в пол реальным PUT")
+
+
+def test_run_tick_in_window_runs_rules_as_before():
+    # в окне (14:00) выключателей нет → обычная логика (hold без тормозных триггеров)
+    ctx, mk, store = _ctx_with([cp(sku="S1", bid=18, clicks=10, carts=2)], dry_run=True)
+    store.set_product_control("C1", "S1", True, 8, 23, 127, "t", 1)
+    decisions = run_tick(ctx, "fast", "C1")
+    d = [x for x in decisions if x.sku == "S1"][0]
+    assert d.loop == "fast"   # прошёл через быстрый контур, а не контрольный слой
+    print("✓ worker: в рабочем окне товар идёт в обычные правила как раньше")
+
+
 def test_load_cfg_safe_hot_reload_and_fallback():
     from core.settings_io import save_settings, load_settings
     p = os.path.join(tempfile.mkdtemp(), "rules.yaml")
@@ -281,6 +322,9 @@ if __name__ == "__main__":
     test_run_tick_uses_per_sku_overrides()
     test_run_tick_writes_marketing_product_names()
     test_apply_logs_each_batch_before_next_put()
+    test_run_tick_disabled_product_not_touched()
+    test_run_tick_out_of_window_lowers_to_floor()
+    test_run_tick_in_window_runs_rules_as_before()
     test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)
     print("✓ Все проверки worker прошли")
