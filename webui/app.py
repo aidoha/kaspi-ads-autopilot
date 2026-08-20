@@ -200,6 +200,18 @@ def create_app() -> FastAPI:
                 row["bid"] = snap["bid"] if snap else None
             last_ts = store.get_latest_snapshot_ts()
             sku_names = store.get_sku_name_map()
+            now_local = datetime.now(ALMATY)
+            ctrl_map = {sku: c for cid, sku, c in store.all_product_controls()}
+            for row in tacos_rows:
+                c = ctrl_map.get(row["sku"])
+                if c is None:
+                    row["status"] = "активен"
+                elif not c.enabled:
+                    row["status"] = "выключен"
+                elif not c.active_at(now_local):
+                    row["status"] = "вне окна"
+                else:
+                    row["status"] = "активен"
         finally:
             store.close()
         budgets = _get_campaign_budgets()
@@ -435,15 +447,39 @@ def create_app() -> FastAPI:
         return resp or RedirectResponse(
             f"/settings/campaign/{campaign_id}", status_code=303)
 
+    _WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+    def _validate_window(start: int, end: int) -> list[str]:
+        errs = []
+        if not (0 <= start <= 23):
+            errs.append("Час начала окна должен быть 0..23")
+        if not (1 <= end <= 24):
+            errs.append("Час конца окна должен быть 1..24")
+        if start >= end:
+            errs.append("Начало окна должно быть раньше конца (окно пустое)")
+        return errs
+
+    def _control_ctx(request, campaign_id, sku, errors):
+        # общий контекст для GET-формы и POST-с-ошибкой
+        store = Store(db_path)
+        try:
+            ctrl = store.get_product_control(campaign_id, sku)
+        finally:
+            store.close()
+        values, owned = _effective_and_flags(campaign_id, sku)
+        return {"user": user(request), "campaign_id": campaign_id, "sku": sku,
+                "fields": OVERRIDABLE_FIELDS, "values": values, "owned": owned,
+                "errors": errors, "control": ctrl,
+                "weekdays": list(enumerate(_WEEKDAYS)),
+                "days_on": [bool(ctrl.days_mask & (1 << i)) for i in range(7)]}
+
     @app.get("/settings/sku/{campaign_id}/{sku}", response_class=HTMLResponse)
     def sku_settings_form(request: Request, campaign_id: str, sku: str):
         if not user(request):
             return RedirectResponse("/login", status_code=303)
-        values, owned = _effective_and_flags(campaign_id, sku)
-        return templates.TemplateResponse(request, "sku_settings.html", {
-            "user": user(request), "campaign_id": campaign_id, "sku": sku,
-            "fields": OVERRIDABLE_FIELDS, "values": values, "owned": owned,
-            "errors": []})
+        return templates.TemplateResponse(
+            request, "sku_settings.html",
+            _control_ctx(request, campaign_id, sku, []))
 
     @app.post("/settings/sku/{campaign_id}/{sku}")
     async def sku_settings_save(request: Request, campaign_id: str, sku: str):
@@ -454,6 +490,89 @@ def create_app() -> FastAPI:
                                base_sku=sku, base_campaign=campaign_id)
         return resp or RedirectResponse(
             f"/settings/sku/{campaign_id}/{sku}", status_code=303)
+
+    @app.post("/settings/sku/{campaign_id}/{sku}/control")
+    async def sku_control_save(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        form = await request.form()
+        enabled = form.get("enabled") == "on"
+        try:
+            start = int(form.get("window_start", 0))
+            end = int(form.get("window_end", 24))
+        except ValueError:
+            start, end = 0, 0            # заведомо невалидно → сработает _validate_window
+        errors = _validate_window(start, end)
+        days_mask = 0
+        for i in range(7):
+            if form.get(f"day_{i}") == "on":
+                days_mask |= (1 << i)
+        if days_mask == 0:
+            errors.append("Выберите хотя бы один день недели")
+        if errors:
+            return templates.TemplateResponse(
+                request, "sku_settings.html",
+                _control_ctx(request, campaign_id, sku, errors), status_code=200)
+        store = Store(db_path)
+        try:
+            store.set_product_control(campaign_id, sku, enabled, start, end,
+                                      days_mask, user(request), int(time.time()))
+        finally:
+            store.close()
+        return RedirectResponse(
+            f"/settings/sku/{campaign_id}/{sku}", status_code=303)
+
+    @app.post("/settings/sku/{campaign_id}/{sku}/preview")
+    async def sku_preview(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        from core.reconcile import reconcile
+        from core.rules import evaluate_fast, evaluate_slow
+        from core.daypart import split_by_control
+        store = Store(db_path)
+        try:
+            snap = store.get_latest_snapshot(sku)     # dict с полями CampaignProduct
+            revenue = store.get_revenue_cache()
+            g = load_rules_config(rules_path)
+            camp_ov = store.get_overrides("campaign", campaign_id)
+            controls = store.list_product_control(campaign_id)
+            preview = None
+            if snap is not None:
+                from connectors.marketing_client import CampaignProduct
+                p = CampaignProduct(
+                    sku=snap["sku"], merchant_sku=snap.get("merchant_sku", ""),
+                    campaign_product_id=0, bid=snap["bid"],
+                    avg_cpc=snap.get("avg_cpc", 0), score=snap.get("score", 0),
+                    buy_box=bool(snap.get("buy_box", False)),
+                    product_state=snap.get("product_state", "Active"),
+                    cost=snap.get("cost", 0), cost_today=snap.get("cost_today", 0),
+                    gmv=0, crr=0, cr=0, ctr=0, views=0,
+                    clicks=snap.get("clicks", 0), carts=snap.get("carts", 0),
+                    transactions=0, price=snap.get("price", 0))
+                reconciled = reconcile([p], revenue)
+
+                def cfg_for(s):
+                    return resolve_config(g, camp_ov, store.get_overrides("sku", s.sku))
+
+                def min_bid_for(sk):
+                    return resolve_config(g, camp_ov, store.get_overrides("sku", sk)).min_bid
+
+                active, ctrl_dec = split_by_control(
+                    reconciled, controls, datetime.now(ALMATY), min_bid_for)
+                if ctrl_dec:
+                    d = ctrl_dec[0]
+                    preview = {"control": (d.action, d.reason)}
+                else:
+                    fast = evaluate_fast(active, cfg_for)
+                    slow = evaluate_slow(active, cfg_for)
+                    # показываем оба контура: что решит тормозной и что окупаемостный
+                    preview = {"fast": (fast[0].action, fast[0].reason),
+                               "slow": (slow[0].action, slow[0].reason)}
+        finally:
+            store.close()
+        ctx = _control_ctx(request, campaign_id, sku, [])
+        ctx["preview"] = preview
+        return templates.TemplateResponse(request, "sku_settings.html", ctx)
 
     @app.post("/dry-run")
     async def dry_run_toggle(request: Request):

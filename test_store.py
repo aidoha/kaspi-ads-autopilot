@@ -13,6 +13,7 @@ import os
 import tempfile
 
 from connectors.marketing_client import CampaignProduct
+from core.daypart import ProductControl
 from core.revenue import SkuRevenue
 from core.rules import Decision
 from core.store import Store
@@ -252,6 +253,38 @@ def test_product_names_and_sku_map():
     print("✓ store: product_names + get_sku_name_map + name в get_campaign_skus")
 
 
+def test_product_control_default_when_absent():
+    with tempfile.TemporaryDirectory() as d:
+        s = Store(os.path.join(d, "t.db"))
+        c = s.get_product_control("C1", "SKU_X")
+        assert c.enabled is True and c.window_start == 0 and c.window_end == 24
+        assert c.days_mask == 127
+        s.close()
+    print("✓ store: product_control default when absent")
+
+
+def test_product_control_upsert_and_list():
+    with tempfile.TemporaryDirectory() as d:
+        s = Store(os.path.join(d, "t.db"))
+        s.set_product_control("C1", "S1", False, 8, 23, 31, "aidyn", 1000)
+        got = s.get_product_control("C1", "S1")
+        assert got.enabled is False and got.window_start == 8
+        assert got.window_end == 23 and got.days_mask == 31
+        # upsert перезаписывает
+        s.set_product_control("C1", "S1", True, 9, 22, 127, "aidyn", 2000)
+        assert s.get_product_control("C1", "S1").enabled is True
+        # list по кампании
+        s.set_product_control("C1", "S2", True, 0, 24, 127, "aidyn", 2000)
+        m = s.list_product_control("C1")
+        assert set(m.keys()) == {"S1", "S2"}
+        assert isinstance(m["S1"], ProductControl)
+        # all_product_controls
+        allc = s.all_product_controls()
+        assert ("C1", "S1") in {(cid, sku) for cid, sku, _ in allc}
+        s.close()
+    print("✓ store: product_control upsert и list + all_product_controls")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -266,5 +299,7 @@ if __name__ == "__main__":
     test_config_overrides_crud()
     test_snapshot_campaign_id_and_lists()
     test_product_names_and_sku_map()
+    test_product_control_default_when_absent()
+    test_product_control_upsert_and_list()
     print("-" * 60)
     print("✓ Все проверки store прошли")

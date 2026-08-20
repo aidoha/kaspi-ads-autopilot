@@ -58,4 +58,49 @@
 <div class="actions">
   <a class="btn" href="/settings/campaign/{{ campaign_id }}">← к кампании</a>
 </div>
+
+<h2>Управление и расписание</h2>
+<div class="card">
+  <form method="post" action="/settings/sku/{{ campaign_id }}/{{ sku }}/control">
+    <label class="inherit-toggle">
+      <input type="checkbox" name="enabled" {{ "checked" if control.enabled else "" }}>
+      Биддер активен для товара
+    </label>
+    <div class="field">
+      <label>Рабочее окно (Алматы)</label>
+      <span>с <input type="number" min="0" max="23" name="window_start"
+                     value="{{ control.window_start }}"> ч
+        до <input type="number" min="1" max="24" name="window_end"
+                  value="{{ control.window_end }}"> ч</span>
+      <span class="hint">Вне окна биддер ставит ставку в минимум (реклама не выключается).</span>
+    </div>
+    <div class="field">
+      <label>Дни недели</label>
+      <span>
+        {% for i, wd in weekdays %}
+        <label class="inherit-toggle">
+          <input type="checkbox" name="day_{{ i }}" {{ "checked" if days_on[i] else "" }}> {{ wd }}
+        </label>
+        {% endfor %}
+      </span>
+    </div>
+    <div class="actions"><button type="submit">Сохранить расписание</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <form method="post" action="/settings/sku/{{ campaign_id }}/{{ sku }}/preview">
+    <button type="submit" class="secondary">Проверить сейчас</button>
+  </form>
+  {% if preview %}
+  <div class="card">
+    <strong>Что бот сделает сейчас (по последнему снапшоту, ничего не отправлено):</strong>
+    <ul>
+      {% for k, v in preview.items() %}
+      <li>{{ k }}: <b>{{ v[0] }}</b> — {{ v[1] }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
 {% endblock %}
