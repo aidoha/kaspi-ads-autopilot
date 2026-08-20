@@ -87,4 +87,20 @@
     <div class="actions"><button type="submit">Сохранить расписание</button></div>
   </form>
 </div>
+
+<div class="card">
+  <form method="post" action="/settings/sku/{{ campaign_id }}/{{ sku }}/preview">
+    <button type="submit" class="secondary">Проверить сейчас</button>
+  </form>
+  {% if preview %}
+  <div class="card">
+    <strong>Что бот сделает сейчас (по последнему снапшоту, ничего не отправлено):</strong>
+    <ul>
+      {% for k, v in preview.items() %}
+      <li>{{ k }}: <b>{{ v[0] }}</b> — {{ v[1] }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
 {% endblock %}

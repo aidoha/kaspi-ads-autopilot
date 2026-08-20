@@ -522,6 +522,58 @@ def create_app() -> FastAPI:
         return RedirectResponse(
             f"/settings/sku/{campaign_id}/{sku}", status_code=303)
 
+    @app.post("/settings/sku/{campaign_id}/{sku}/preview")
+    async def sku_preview(request: Request, campaign_id: str, sku: str):
+        if not user(request):
+            return RedirectResponse("/login", status_code=303)
+        from core.reconcile import reconcile
+        from core.rules import evaluate_fast, evaluate_slow
+        from core.daypart import split_by_control
+        store = Store(db_path)
+        try:
+            snap = store.get_latest_snapshot(sku)     # dict с полями CampaignProduct
+            revenue = store.get_revenue_cache()
+            g = load_rules_config(rules_path)
+            camp_ov = store.get_overrides("campaign", campaign_id)
+            controls = store.list_product_control(campaign_id)
+            preview = None
+            if snap is not None:
+                from connectors.marketing_client import CampaignProduct
+                p = CampaignProduct(
+                    sku=snap["sku"], merchant_sku=snap.get("merchant_sku", ""),
+                    campaign_product_id=0, bid=snap["bid"],
+                    avg_cpc=snap.get("avg_cpc", 0), score=snap.get("score", 0),
+                    buy_box=bool(snap.get("buy_box", False)),
+                    product_state=snap.get("product_state", "Active"),
+                    cost=snap.get("cost", 0), cost_today=snap.get("cost_today", 0),
+                    gmv=0, crr=0, cr=0, ctr=0, views=0,
+                    clicks=snap.get("clicks", 0), carts=snap.get("carts", 0),
+                    transactions=0, price=snap.get("price", 0))
+                reconciled = reconcile([p], revenue)
+
+                def cfg_for(s):
+                    return resolve_config(g, camp_ov, store.get_overrides("sku", s.sku))
+
+                def min_bid_for(sk):
+                    return resolve_config(g, camp_ov, store.get_overrides("sku", sk)).min_bid
+
+                active, ctrl_dec = split_by_control(
+                    reconciled, controls, datetime.now(ALMATY), min_bid_for)
+                if ctrl_dec:
+                    d = ctrl_dec[0]
+                    preview = {"control": (d.action, d.reason)}
+                else:
+                    fast = evaluate_fast(active, cfg_for)
+                    slow = evaluate_slow(active, cfg_for)
+                    # показываем оба контура: что решит тормозной и что окупаемостный
+                    preview = {"fast": (fast[0].action, fast[0].reason),
+                               "slow": (slow[0].action, slow[0].reason)}
+        finally:
+            store.close()
+        ctx = _control_ctx(request, campaign_id, sku, [])
+        ctx["preview"] = preview
+        return templates.TemplateResponse(request, "sku_settings.html", ctx)
+
     @app.post("/dry-run")
     async def dry_run_toggle(request: Request):
         if not user(request):

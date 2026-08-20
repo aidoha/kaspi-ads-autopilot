@@ -259,6 +259,32 @@ def test_save_product_control_rejects_bad_window():
     print("✓ webui: расписание товара — невалидное окно не сохраняется")
 
 
+def test_preview_returns_decision_without_side_effects():
+    client, rules, db_path = _client_logged_in()
+    from core.store import Store
+    from connectors.marketing_client import CampaignProduct
+    # подготовим снапшот товара, чтобы превью было из чего считать
+    s = Store(db_path)
+    product = CampaignProduct(
+        sku="S1", merchant_sku="M1", campaign_product_id=1, bid=18, avg_cpc=12.5,
+        score=7.0, buy_box=True, product_state="Active", cost=100, cost_today=100,
+        gmv=0, crr=0, cr=0, ctr=0, views=0, clicks=10, carts=2, transactions=0, price=48900,
+    )
+    s.save_products_snapshot([product], ts=1000, campaign_id="C1")
+    s.set_product_control("C1", "S1", False, 0, 24, 127, "t", 1)   # выключен
+    s.close()
+    r = client.post("/settings/sku/C1/S1/preview", follow_redirects=False)
+    assert r.status_code == 200, r.status_code
+    assert "выключен" in r.text.lower()          # решение показано
+    s = Store(db_path)
+    # аудит НЕ должен получить запись от превью
+    row = s._conn.execute(
+        "SELECT COUNT(*) AS c FROM decisions_log WHERE sku=?", ("S1",)).fetchone()
+    assert row["c"] == 0
+    s.close()
+    print("✓ webui: «Проверить сейчас» — dry-превью решения без сайд-эффектов")
+
+
 def test_dashboard_shows_freshness():
     client, rules, db_path = _client_logged_in()
     from core.store import Store
@@ -325,6 +351,7 @@ if __name__ == "__main__":
     test_sku_settings_inherits_campaign_then_saves()
     test_save_product_control_persists()
     test_save_product_control_rejects_bad_window()
+    test_preview_returns_decision_without_side_effects()
     test_dashboard_shows_freshness()
     test_refresh_requires_login_and_is_best_effort()
     print("-" * 60)
