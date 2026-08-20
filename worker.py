@@ -340,11 +340,18 @@ def main():  # pragma: no cover
         text = run_analysis(store, day)
         log.info("Аналитик за %s:\n%s", day, text)
 
-    sched.add_job(analyst_job, "cron", hour="22", id="analyst")
+    # LLM-аналитик отдельным флагом: ходит в Anthropic API, при нуле кредитов
+    # шлёт трейсбек в лог каждую ночь. Держим выключенным до пополнения баланса.
+    analyst_enabled = os.environ.get("ANALYST_ENABLED", "1") != "0"
+    if analyst_enabled:
+        sched.add_job(analyst_job, "cron", hour="22", id="analyst")
+    else:
+        log.info("LLM-аналитик ВЫКЛЮЧЕН (ANALYST_ENABLED=0)")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/10:00,20:00, analyst/22:00%s (Алматы)",
+             "fast/5м, slow/10:00,20:00%s%s (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные",
+             ", analyst/22:00" if analyst_enabled else " (analyst ВЫКЛ)",
              ", positions/15м" if positions_enabled else " (positions ВЫКЛ)")
     sched.start()
 
