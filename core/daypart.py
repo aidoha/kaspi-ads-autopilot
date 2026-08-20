@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Callable
 
 from core.rules import Decision
 
@@ -34,3 +35,31 @@ class ProductControl:
 
 
 DEFAULT_CONTROL = ProductControl()
+
+
+def split_by_control(reconciled, controls: dict, now: datetime,
+                     min_bid_for: Callable[[str], float]):
+    """Делит товары ДО правил: активные → в fast/slow; вне окна → ставка в пол;
+    выключенные → hold. Товар без записи в controls считается активным (дефолт).
+    min_bid_for(sku) — эффективный min_bid (учитывает per-SKU оверрайд)."""
+    active = []
+    control_decisions: list[Decision] = []
+    for s in reconciled:
+        ctrl = controls.get(s.sku, DEFAULT_CONTROL)
+        if not ctrl.enabled:
+            control_decisions.append(Decision(
+                s.sku, s.merchant_sku, s.bid, s.bid, "hold", "none",
+                "биддер выключен для товара"))
+        elif not ctrl.active_at(now):
+            floor = min_bid_for(s.sku)
+            if s.bid <= floor:
+                control_decisions.append(Decision(
+                    s.sku, s.merchant_sku, s.bid, s.bid, "hold", "none",
+                    "вне рабочего окна, ставка уже в полу"))
+            else:
+                control_decisions.append(Decision(
+                    s.sku, s.merchant_sku, s.bid, floor, "lower", "none",
+                    f"вне рабочего окна → ставка в пол {floor:g}"))
+        else:
+            active.append(s)
+    return active, control_decisions

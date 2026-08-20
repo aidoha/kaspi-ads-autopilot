@@ -1,7 +1,8 @@
 # test_daypart.py
+from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from core.daypart import ProductControl, DEFAULT_CONTROL
+from core.daypart import ProductControl, DEFAULT_CONTROL, split_by_control
 
 ALMATY = ZoneInfo("Asia/Almaty")
 
@@ -33,6 +34,46 @@ def test_day_mask_excludes_day():
     assert c.active_at(_dt(h=12)) is False
     # понедельник 2026-08-17 (weekday()==0) — в маске
     assert c.active_at(_dt(d=17, h=12)) is True
+
+@dataclass
+class FakeRec:  # мини-заглушка SkuReconciled: split_by_control читает только эти поля
+    sku: str
+    merchant_sku: str
+    bid: float
+
+def _min_bid_for(_sku):  # эффективный min_bid = 1 для всех
+    return 1.0
+
+def test_split_disabled_goes_to_hold():
+    recs = [FakeRec("S1", "M1", 18)]
+    ctrl = {"S1": ProductControl(enabled=False)}
+    active, decs = split_by_control(recs, ctrl, _dt(h=12), _min_bid_for)
+    assert active == []
+    assert len(decs) == 1
+    assert decs[0].action == "hold"
+    assert "выключен" in decs[0].reason
+
+def test_split_out_of_window_lowers_to_floor():
+    recs = [FakeRec("S1", "M1", 18)]
+    ctrl = {"S1": ProductControl(window_start=8, window_end=23)}
+    active, decs = split_by_control(recs, ctrl, _dt(h=3), _min_bid_for)
+    assert active == []
+    assert decs[0].action == "lower"
+    assert decs[0].new_bid == 1.0
+    assert decs[0].old_bid == 18
+
+def test_split_out_of_window_already_floor_is_hold():
+    recs = [FakeRec("S1", "M1", 1)]
+    ctrl = {"S1": ProductControl(window_start=8, window_end=23)}
+    active, decs = split_by_control(recs, ctrl, _dt(h=3), _min_bid_for)
+    assert decs[0].action == "hold"
+
+def test_split_active_and_missing_go_to_rules():
+    recs = [FakeRec("S1", "M1", 18), FakeRec("S2", "M2", 20)]
+    ctrl = {"S1": ProductControl(window_start=8, window_end=23)}  # S2 — без записи
+    active, decs = split_by_control(recs, ctrl, _dt(h=12), _min_bid_for)
+    assert {r.sku for r in active} == {"S1", "S2"}
+    assert decs == []
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
