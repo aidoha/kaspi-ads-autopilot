@@ -229,6 +229,36 @@ def test_sku_settings_inherits_campaign_then_saves():
     print("✓ webui: настройки товара — наследует кампанию, пишет свой override")
 
 
+def test_save_product_control_persists():
+    client, rules, db_path = _client_logged_in()
+    r = client.post("/settings/sku/C1/S1/control", data={
+        "enabled": "on", "window_start": "8", "window_end": "23",
+        "day_0": "on", "day_1": "on", "day_2": "on", "day_3": "on", "day_4": "on",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    from core.store import Store
+    s = Store(db_path)
+    c = s.get_product_control("C1", "S1")
+    s.close()
+    assert c.enabled is True and c.window_start == 8 and c.window_end == 23
+    assert c.days_mask == 0b0011111        # Пн..Пт
+    print("✓ webui: расписание/вкл-выкл товара — сохраняется")
+
+
+def test_save_product_control_rejects_bad_window():
+    client, rules, db_path = _client_logged_in()
+    r = client.post("/settings/sku/C1/S1/control", data={
+        "enabled": "on", "window_start": "20", "window_end": "8",
+        "day_0": "on"}, follow_redirects=False)
+    assert r.status_code == 200          # форма с ошибкой, не редирект
+    assert "окно" in r.text.lower()
+    from core.store import Store
+    s = Store(db_path)
+    assert s.get_product_control("C1", "S1").window_start == 0   # не сохранилось (дефолт)
+    s.close()
+    print("✓ webui: расписание товара — невалидное окно не сохраняется")
+
+
 def test_dashboard_shows_freshness():
     client, rules, db_path = _client_logged_in()
     from core.store import Store
@@ -293,6 +323,8 @@ if __name__ == "__main__":
     test_campaign_settings_get_and_save()
     test_campaign_settings_rejects_invalid_input()
     test_sku_settings_inherits_campaign_then_saves()
+    test_save_product_control_persists()
+    test_save_product_control_rejects_bad_window()
     test_dashboard_shows_freshness()
     test_refresh_requires_login_and_is_best_effort()
     print("-" * 60)
