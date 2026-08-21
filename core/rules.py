@@ -35,6 +35,7 @@ class RulesConfig:
     bid_ceiling: float = 50
     min_bid: float = 1
     min_score_for_raise: float = 4.0
+    cpc_headroom: float = 2.0   # #3: не поднимать, если bid > avg_cpc×это; 0 = выкл
     dry_run: bool = True
     campaign_ids: list[str] | None = None   # allowlist кампаний; None/пусто = все активные
 
@@ -193,6 +194,11 @@ def _eval_slow_one(s, cfg: RulesConfig, st: DailyState) -> Decision:
         if s.score < cfg.min_score_for_raise:
             return _hold(s, "slow",
                          f"TACoS низкий, но score {s.score} < {cfg.min_score_for_raise} — не поднимаем")
+        # страж avg_cpc: ставка уже намного выше реальной цены клика — подъём бессмыслен
+        if cfg.cpc_headroom > 0 and s.avg_cpc > 0 and s.bid > s.avg_cpc * cfg.cpc_headroom:
+            return _hold(s, "slow",
+                         f"ставка {s.bid:g} > avg_cpc {s.avg_cpc:g}×{cfg.cpc_headroom:g} "
+                         f"— подъём не нужен (запас над реальной ценой клика)")
         return _stepped(s, "raise", "slow",
                         f"TACoS {s.tacos:.3f} < {cfg.target_tacos_low} → поднимаем", cfg)
 

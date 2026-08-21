@@ -152,7 +152,9 @@ def test_slow_low_score_blocks_raise():
 
 
 def test_slow_ceiling_clamps_raise():
-    d = only(evaluate_slow([sr(tacos=0.04, bid=50, score=7.0)], CFG))  # уже на потолке
+    # avg_cpc=30 держит ставку 50 в пределах хедрума (50 < 30×2=60), чтобы
+    # тест бил именно в клэмп по потолку, а не в страж #3 avg_cpc-хедрума
+    d = only(evaluate_slow([sr(tacos=0.04, bid=50, avg_cpc=30, score=7.0)], CFG))  # уже на потолке
     assert d.action == "hold"
     assert d.new_bid == 50
     print("✓ slow: у потолка ставки → hold (не выше bid_ceiling)")
@@ -201,8 +203,10 @@ def test_load_rules_config_reads_yaml():
 
 def test_step_is_proportional_to_bid():
     # bid=100, pct=0.20 → шаг 20 (в пределах кэпа 50)
+    # avg_cpc=60 держит ставку в пределах хедрума (100 < 60×2=120), чтобы тест
+    # бил именно в размер шага, а не в страж #3 avg_cpc-хедрума
     cfg = RulesConfig(bid_step_pct=0.20, max_bid_step=50, bid_ceiling=1000)
-    d = only(evaluate_slow([sr(bid=100, tacos=0.05, score=7.0)], cfg))
+    d = only(evaluate_slow([sr(bid=100, avg_cpc=60, tacos=0.05, score=7.0)], cfg))
     assert d.action == "raise"
     assert d.new_bid == 120, d.new_bid
     print("✓ #1: шаг пропорционален ставке (100 → 120 при 20%)")
@@ -210,8 +214,9 @@ def test_step_is_proportional_to_bid():
 
 def test_step_clamped_by_max_step_cap():
     # bid=100, pct=0.20 → «сырой» шаг 20, но кэп 15 → шаг 15
+    # avg_cpc=60 держит ставку в пределах хедрума (см. комментарий выше)
     cfg = RulesConfig(bid_step_pct=0.20, max_bid_step=15, bid_ceiling=1000)
-    d = only(evaluate_slow([sr(bid=100, tacos=0.05, score=7.0)], cfg))
+    d = only(evaluate_slow([sr(bid=100, avg_cpc=60, tacos=0.05, score=7.0)], cfg))
     assert d.new_bid == 115, d.new_bid
     print("✓ #1: шаг ограничен кэпом max_bid_step")
 
@@ -241,6 +246,41 @@ def test_step_rounds_to_whole_tenge():
     print("✓ #1: шаг округляется до целого ₸")
 
 
+# ============ ХЕДРУМ ПО avg_cpc (#3, страж подъёма) ============
+
+def test_cpc_headroom_blocks_raise_when_bid_far_above_cpc():
+    # bid=40, avg_cpc=12, headroom=2.0 → 40 > 12×2=24 → НЕ поднимаем
+    cfg = RulesConfig(cpc_headroom=2.0, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=40, avg_cpc=12, tacos=0.05, score=7.0)], cfg))
+    assert d.action == "hold", d.action
+    assert "avg_cpc" in d.reason or "цены клика" in d.reason
+    print("✓ #3: страж avg_cpc блокирует подъём, если ставка >> реальной цены клика")
+
+
+def test_cpc_headroom_allows_raise_within_headroom():
+    # bid=18, avg_cpc=12, headroom=2.0 → 18 < 24 → подъём разрешён
+    cfg = RulesConfig(cpc_headroom=2.0, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=18, avg_cpc=12, tacos=0.05, score=7.0)], cfg))
+    assert d.action == "raise", d.action
+    print("✓ #3: подъём идёт, когда ставка в пределах хедрума")
+
+
+def test_cpc_headroom_zero_disables_guard():
+    # cpc_headroom=0 → страж выключен, подъём как раньше даже при bid>>cpc
+    cfg = RulesConfig(cpc_headroom=0.0, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=40, avg_cpc=12, tacos=0.05, score=7.0)], cfg))
+    assert d.action == "raise", d.action
+    print("✓ #3: cpc_headroom=0 → страж выключен")
+
+
+def test_cpc_headroom_ignored_when_no_cpc_data():
+    # avg_cpc=0 (нет данных) → страж не мешает, обычная логика
+    cfg = RulesConfig(cpc_headroom=2.0, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=40, avg_cpc=0, tacos=0.05, score=7.0)], cfg))
+    assert d.action == "raise", d.action
+    print("✓ #3: avg_cpc=0 → страж не срабатывает")
+
+
 if __name__ == "__main__":
     for fn in [
         test_fast_spend_cap_pauses,
@@ -265,6 +305,10 @@ if __name__ == "__main__":
         test_step_floor_at_least_one_tenge,
         test_step_zero_pct_falls_back_to_fixed,
         test_step_rounds_to_whole_tenge,
+        test_cpc_headroom_blocks_raise_when_bid_far_above_cpc,
+        test_cpc_headroom_allows_raise_within_headroom,
+        test_cpc_headroom_zero_disables_guard,
+        test_cpc_headroom_ignored_when_no_cpc_data,
     ]:
         fn()
     print("-" * 60)
