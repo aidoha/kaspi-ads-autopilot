@@ -127,6 +127,33 @@ def test_validate_rejects_nan_inf():
     print("✓ settings_io: NaN/inf отвергаются валидатором")
 
 
+def test_settings_accepts_new_field_defaults():
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    assert validate_settings(base) == []   # дефолты с новыми полями валидны
+    print("✓ settings: дефолты с новыми полями валидны")
+
+
+def test_settings_rejects_bad_new_fields():
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    assert any("bid_step_pct" in e for e in validate_settings(dict(base, bid_step_pct=1.5)))
+    assert any("cpc_headroom" in e for e in validate_settings(dict(base, cpc_headroom=-1)))
+    assert any("pace_tolerance" in e for e in validate_settings(dict(base, pace_tolerance=-0.5)))
+    print("✓ settings: невалидные новые поля отклонены")
+
+
+def test_settings_roundtrip_new_fields():
+    import tempfile, os
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    data = dict(base, bid_step_pct=0.25, cpc_headroom=1.8, pace_tolerance=1.1)
+    path = os.path.join(tempfile.mkdtemp(), "rules.yaml")
+    save_settings(path, data)
+    loaded = load_settings(path)
+    assert loaded["bid_step_pct"] == 0.25
+    assert loaded["cpc_headroom"] == 1.8
+    assert loaded["pace_tolerance"] == 1.1
+    print("✓ settings: новые поля переживают save→load")
+
+
 if __name__ == "__main__":
     test_validate_catches_bad_values()
     test_save_load_roundtrip_and_loadable_by_worker()
@@ -134,5 +161,8 @@ if __name__ == "__main__":
     test_dry_run_string_coercion()
     test_dry_run_missing_defaults_to_true()
     test_validate_rejects_nan_inf()
+    test_settings_accepts_new_field_defaults()
+    test_settings_rejects_bad_new_fields()
+    test_settings_roundtrip_new_fields()
     print("-" * 60)
     print("✓ Все проверки settings_io прошли")

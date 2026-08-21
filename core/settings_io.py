@@ -14,6 +14,7 @@ SETTINGS_FIELDS = [
     "min_clicks_for_no_cart_cut", "cpc_spike_pct",
     "max_bid_step", "max_changes_per_day",
     "bid_ceiling", "min_bid", "min_score_for_raise",
+    "bid_step_pct", "cpc_headroom", "pace_tolerance",
     "dry_run", "campaign_ids",
 ]
 
@@ -42,6 +43,7 @@ def validate_settings(data: dict) -> list[str]:
     frac = num("sku_budget_fraction"); cap = num("daily_sku_cost_limit")
     changes = num("max_changes_per_day"); spike = num("cpc_spike_pct")
     clicks = num("min_clicks_for_no_cart_cut"); score = num("min_score_for_raise")
+    step_pct = num("bid_step_pct"); headroom = num("cpc_headroom"); pace = num("pace_tolerance")
     if min_bid is not None and min_bid < 1:
         errs.append("min_bid: минимум 1")
     if ceil is not None and min_bid is not None and ceil < min_bid:
@@ -62,6 +64,12 @@ def validate_settings(data: dict) -> list[str]:
         errs.append("min_clicks_for_no_cart_cut: не отрицательный")
     if score is not None and score < 0:
         errs.append("min_score_for_raise: не отрицательный")
+    if step_pct is not None and not (0 <= step_pct < 1):
+        errs.append("bid_step_pct: доля в [0, 1)")
+    if headroom is not None and headroom < 0:
+        errs.append("cpc_headroom: не отрицательный")
+    if pace is not None and pace < 0:
+        errs.append("pace_tolerance: не отрицательный")
     cids = data.get("campaign_ids")
     if cids not in (None, "") and not isinstance(cids, list):
         errs.append("campaign_ids: список строк или пусто")
@@ -89,6 +97,9 @@ def save_settings(path: str, data: dict) -> None:
         "bid_ceiling": float(data["bid_ceiling"]),
         "min_bid": float(data["min_bid"]),
         "min_score_for_raise": float(data["min_score_for_raise"]),
+        "bid_step_pct": float(data["bid_step_pct"]),
+        "cpc_headroom": float(data["cpc_headroom"]),
+        "pace_tolerance": float(data["pace_tolerance"]),
         "dry_run": dry_run_normalized,
         "campaign_ids": list(data["campaign_ids"]) if data.get("campaign_ids") else None,
     }

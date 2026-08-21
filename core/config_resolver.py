@@ -10,13 +10,14 @@ import dataclasses
 
 from core.rules import RulesConfig
 
-# 11 переопределяемых числовых порогов (без dry_run/campaign_ids).
+# 14 переопределяемых числовых порогов (без dry_run/campaign_ids).
 OVERRIDABLE_FIELDS = [
     "target_tacos_low", "target_tacos_high",
     "daily_sku_cost_limit", "sku_budget_fraction",
     "min_clicks_for_no_cart_cut", "cpc_spike_pct",
     "max_bid_step", "max_changes_per_day",
     "bid_ceiling", "min_bid", "min_score_for_raise",
+    "bid_step_pct", "cpc_headroom", "pace_tolerance",
 ]
 _INT_FIELDS = {"min_clicks_for_no_cart_cut", "max_changes_per_day"}
 
