@@ -336,6 +336,19 @@ def test_dt_filter_renders_almaty_not_server_tz():
     print("✓ webui: dt-фильтр рендерит Алматы (UTC+5), а не таймзону сервера")
 
 
+def test_settings_page_shows_new_fields():
+    client, rules, db_path = _client_logged_in()
+    r = client.get("/settings")
+    assert r.status_code == 200
+    body = r.text
+    assert 'name="bid_step_pct"' in body
+    assert 'name="cpc_headroom"' in body
+    assert 'name="pace_tolerance"' in body
+    # человекочитаемые подписи, а не сырые имена
+    assert "Шаг ставки" in body or "пропорц" in body.lower()
+    print("✓ webui: форма настроек показывает новые поля с подписями")
+
+
 if __name__ == "__main__":
     test_dt_filter_renders_almaty_not_server_tz()
     test_password_hash_roundtrip()
@@ -354,5 +367,6 @@ if __name__ == "__main__":
     test_preview_returns_decision_without_side_effects()
     test_dashboard_shows_freshness()
     test_refresh_requires_login_and_is_best_effort()
+    test_settings_page_shows_new_fields()
     print("-" * 60)
     print("✓ Все проверки webui прошли")
