@@ -43,8 +43,19 @@ def test_global_only_fields_ignored():
 def test_overridable_fields_list():
     assert "dry_run" not in OVERRIDABLE_FIELDS
     assert "campaign_ids" not in OVERRIDABLE_FIELDS
-    assert "bid_ceiling" in OVERRIDABLE_FIELDS and len(OVERRIDABLE_FIELDS) == 11
+    assert "bid_ceiling" in OVERRIDABLE_FIELDS and len(OVERRIDABLE_FIELDS) == 14
     print("✓ resolver: список переопределяемых полей корректен")
+
+
+def test_new_fields_overridable_per_sku():
+    from core.rules import RulesConfig
+    g = RulesConfig()
+    eff = resolve_config(g, {}, {"bid_step_pct": "0.30", "cpc_headroom": "1.5",
+                                 "pace_tolerance": "0"})
+    assert eff.bid_step_pct == 0.30
+    assert eff.cpc_headroom == 1.5
+    assert eff.pace_tolerance == 0.0
+    print("✓ resolver: bid_step_pct/cpc_headroom/pace_tolerance переопределяются по SKU")
 
 
 if __name__ == "__main__":
@@ -54,5 +65,6 @@ if __name__ == "__main__":
     test_int_fields_coerced()
     test_global_only_fields_ignored()
     test_overridable_fields_list()
+    test_new_fields_overridable_per_sku()
     print("-" * 60)
     print("✓ Все проверки config_resolver прошли")

@@ -29,11 +29,14 @@ class RulesConfig:
     sku_budget_fraction: float = 0.5   # доля дневного бюджета кампании на один SKU
     min_clicks_for_no_cart_cut: int = 40
     cpc_spike_pct: float = 0.5
-    max_bid_step: float = 2
+    max_bid_step: float = 15          # кэп одного шага, ₸ (было 2)
+    bid_step_pct: float = 0.20        # доля шага от ставки; 0 = фикс-шаг max_bid_step
     max_changes_per_day: int = 3
     bid_ceiling: float = 50
     min_bid: float = 1
     min_score_for_raise: float = 4.0
+    cpc_headroom: float = 2.0   # #3: не поднимать, если bid > avg_cpc×это; 0 = выкл
+    pace_tolerance: float = 1.25   # #5: слак пейсинга (лимит×день×это); 0 = выкл
     dry_run: bool = True
     campaign_ids: list[str] | None = None   # allowlist кампаний; None/пусто = все активные
 
@@ -88,13 +91,20 @@ def _hold(s, loop: str, reason: str) -> Decision:
 
 def _stepped(s, direction: str, loop: str, reason: str, cfg: RulesConfig) -> Decision:
     """
-    Сдвиг ставки на шаг в пределах [min_bid, bid_ceiling]. Если упёрлись в
-    границу и ставка не меняется — это hold (менять нечего).
+    Сдвиг ставки на пропорциональный шаг в пределах [min_bid, bid_ceiling].
+    Шаг = round(bid × bid_step_pct), зажат в [1, max_bid_step]. При
+    bid_step_pct=0 — фиксированный шаг max_bid_step (старое поведение).
+    Упор в границу без изменения ставки → hold (менять нечего).
     """
+    if cfg.bid_step_pct > 0:
+        step = round(s.bid * cfg.bid_step_pct)
+        step = max(1, min(step, cfg.max_bid_step))
+    else:
+        step = cfg.max_bid_step
     if direction == "raise":
-        new_bid = min(s.bid + cfg.max_bid_step, cfg.bid_ceiling)
+        new_bid = min(s.bid + step, cfg.bid_ceiling)
     else:  # lower
-        new_bid = max(s.bid - cfg.max_bid_step, cfg.min_bid)
+        new_bid = max(s.bid - step, cfg.min_bid)
     if new_bid == s.bid:
         edge = "потолок" if direction == "raise" else "пол"
         return _hold(s, loop, f"{reason}, но ставка у границы ({edge})")
@@ -105,34 +115,44 @@ def _stepped(s, direction: str, loop: str, reason: str, cfg: RulesConfig) -> Dec
 
 def evaluate_fast(
     skus: list, cfg: RulesConfig | None = None, state: dict | None = None,
-    daily_budget: float = 0.0,
+    daily_budget: float = 0.0, day_frac: float = 1.0,
 ) -> list[Decision]:
     out: list[Decision] = []
     for s in skus:
         out.append(_eval_fast_one(s, _cfg_for(cfg, s),
-                                  _state_for(state, s.sku), daily_budget))
+                                  _state_for(state, s.sku), daily_budget, day_frac))
     return out
 
 
 def _eval_fast_one(s, cfg: RulesConfig, st: DailyState,
-                   daily_budget: float = 0.0) -> Decision:
+                   daily_budget: float = 0.0, day_frac: float = 1.0) -> Decision:
     if s.product_state != "Active":
         return _hold(s, "fast", "товар не Active — ставку не трогаем")
 
-    # Спенд-кап важнее лимита изменений: слив бюджета тормозим всегда.
-    # Лимит на SKU считаем от дневного бюджета кампании (dailyBudget из кабинета);
-    # если бюджет недоступен (0) — фолбэк на абсолютный daily_sku_cost_limit.
-    # Эндпоинта «паузы» нет — режем ставку в пол (min_bid), это и есть стоп.
+    # Лимит расхода на SKU: доля дневного бюджета кампании, фолбэк — абсолютный.
     if daily_budget > 0:
         limit = daily_budget * cfg.sku_budget_fraction
         src = f"{int(cfg.sku_budget_fraction * 100)}% бюджета {daily_budget:g}"
     else:
         limit = cfg.daily_sku_cost_limit
         src = f"фолбэк-лимит {cfg.daily_sku_cost_limit:g}"
+
+    # Жёсткий стоп: слив всего лимита тормозим всегда (освобождён от лимита изменений).
     if s.cost_today >= limit:
         return Decision(s.sku, s.merchant_sku, s.bid, cfg.min_bid, "pause", "fast",
                         f"costToday={s.cost_today:g} ≥ {src} = {limit:g} "
                         f"→ пауза (ставка в пол {cfg.min_bid:g})")
+
+    # Пейсинг: опережаем план трат по времени суток → мягко тормозим (освобождён
+    # от лимита изменений — та же защита бюджета, что и жёсткий стоп; только снижает,
+    # ограничен снизу min_bid, поэтому churn самоограничивается).
+    if cfg.pace_tolerance > 0 and limit > 0:
+        pace_limit = limit * day_frac * cfg.pace_tolerance
+        if s.cost_today >= pace_limit:
+            return _stepped(s, "lower", "fast",
+                            f"пейсинг: costToday={s.cost_today:g} опережает план "
+                            f"{pace_limit:g} (лимит {limit:g}×{day_frac:.2f}×{cfg.pace_tolerance:g})",
+                            cfg)
 
     if st.changes_today >= cfg.max_changes_per_day:
         return _hold(s, "fast", f"исчерпан лимит изменений/сутки ({cfg.max_changes_per_day})")
@@ -185,6 +205,11 @@ def _eval_slow_one(s, cfg: RulesConfig, st: DailyState) -> Decision:
         if s.score < cfg.min_score_for_raise:
             return _hold(s, "slow",
                          f"TACoS низкий, но score {s.score} < {cfg.min_score_for_raise} — не поднимаем")
+        # страж avg_cpc: ставка уже намного выше реальной цены клика — подъём бессмыслен
+        if cfg.cpc_headroom > 0 and s.avg_cpc > 0 and s.bid > s.avg_cpc * cfg.cpc_headroom:
+            return _hold(s, "slow",
+                         f"ставка {s.bid:g} > avg_cpc {s.avg_cpc:g}×{cfg.cpc_headroom:g} "
+                         f"— подъём не нужен (запас над реальной ценой клика)")
         return _stepped(s, "raise", "slow",
                         f"TACoS {s.tacos:.3f} < {cfg.target_tacos_low} → поднимаем", cfg)
 
