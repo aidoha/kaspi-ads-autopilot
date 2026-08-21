@@ -29,7 +29,8 @@ class RulesConfig:
     sku_budget_fraction: float = 0.5   # доля дневного бюджета кампании на один SKU
     min_clicks_for_no_cart_cut: int = 40
     cpc_spike_pct: float = 0.5
-    max_bid_step: float = 2
+    max_bid_step: float = 15          # кэп одного шага, ₸ (было 2)
+    bid_step_pct: float = 0.20        # доля шага от ставки; 0 = фикс-шаг max_bid_step
     max_changes_per_day: int = 3
     bid_ceiling: float = 50
     min_bid: float = 1
@@ -88,13 +89,20 @@ def _hold(s, loop: str, reason: str) -> Decision:
 
 def _stepped(s, direction: str, loop: str, reason: str, cfg: RulesConfig) -> Decision:
     """
-    Сдвиг ставки на шаг в пределах [min_bid, bid_ceiling]. Если упёрлись в
-    границу и ставка не меняется — это hold (менять нечего).
+    Сдвиг ставки на пропорциональный шаг в пределах [min_bid, bid_ceiling].
+    Шаг = round(bid × bid_step_pct), зажат в [1, max_bid_step]. При
+    bid_step_pct=0 — фиксированный шаг max_bid_step (старое поведение).
+    Упор в границу без изменения ставки → hold (менять нечего).
     """
+    if cfg.bid_step_pct > 0:
+        step = round(s.bid * cfg.bid_step_pct)
+        step = max(1, min(step, cfg.max_bid_step))
+    else:
+        step = cfg.max_bid_step
     if direction == "raise":
-        new_bid = min(s.bid + cfg.max_bid_step, cfg.bid_ceiling)
+        new_bid = min(s.bid + step, cfg.bid_ceiling)
     else:  # lower
-        new_bid = max(s.bid - cfg.max_bid_step, cfg.min_bid)
+        new_bid = max(s.bid - step, cfg.min_bid)
     if new_bid == s.bid:
         edge = "потолок" if direction == "raise" else "пол"
         return _hold(s, loop, f"{reason}, но ставка у границы ({edge})")

@@ -58,7 +58,7 @@ def test_fast_zero_carts_cut_only_above_volume():
     # 60 кликов, 0 корзин → срезать шаг вниз
     d = only(evaluate_fast([sr(clicks=60, carts=0, bid=18)], CFG))
     assert d.action == "lower"
-    assert d.new_bid == 16          # шаг 2 вниз
+    assert d.new_bid == 14          # bid=18, шаг round(18×0.2)=4 вниз
     assert d.loop == "fast"
     print("✓ fast: 0 корзин на 60 кликах → срез ставки на шаг")
 
@@ -124,7 +124,7 @@ def test_slow_in_corridor_holds():
 def test_slow_below_corridor_raises():
     d = only(evaluate_slow([sr(tacos=0.04, bid=18, score=7.0)], CFG))
     assert d.action == "raise"
-    assert d.new_bid == 20
+    assert d.new_bid == 22          # bid=18, шаг round(18×0.2)=4
     assert d.loop == "slow"
     print("✓ slow: TACoS ниже коридора → поднимаем на шаг")
 
@@ -132,7 +132,7 @@ def test_slow_below_corridor_raises():
 def test_slow_above_corridor_lowers():
     d = only(evaluate_slow([sr(tacos=0.25, bid=18)], CFG))
     assert d.action == "lower"
-    assert d.new_bid == 16
+    assert d.new_bid == 14          # bid=18, шаг round(18×0.2)=4
     print("✓ slow: TACoS выше коридора → снижаем")
 
 
@@ -165,10 +165,17 @@ def test_slow_paused_product_holds():
 
 
 def test_evaluate_fast_accepts_cfg_callable():
-    # два SKU: у каждого свой резолвер конфига (per-SKU шаг снижения ставки)
+    # два SKU: у каждого свой резолвер конфига (per-SKU шаг снижения ставки).
+    # bid_step_pct=0.0 фиксирует шаг = max_bid_step, чтобы тест проверял именно
+    # то, что заявлен (разный ФИКСИРОВАННЫЙ шаг по SKU из per-sku cfg) — при
+    # дефолтном пропорц. шаге (0.20) raw-шаг от bid=10 (=2) был бы меньше обоих
+    # кэпов (2 и 5) и не показал бы разницу между A и B.
     a = sr(sku="A", carts=0, clicks=100, bid=10, product_state="Active")
     b = sr(sku="B", carts=0, clicks=100, bid=10, product_state="Active")
-    cfgs = {"A": RulesConfig(max_bid_step=2), "B": RulesConfig(max_bid_step=5)}
+    cfgs = {
+        "A": RulesConfig(max_bid_step=2, bid_step_pct=0.0),
+        "B": RulesConfig(max_bid_step=5, bid_step_pct=0.0),
+    }
     out = {d.sku: d for d in evaluate_fast([a, b], cfg=lambda s: cfgs[s.sku])}
     # оба режут ставку (0 корзин при 100 кликах), но на свой шаг
     assert out["A"].new_bid == 8   # 10 - 2
@@ -190,6 +197,50 @@ def test_load_rules_config_reads_yaml():
     print("✓ load_rules_config: значения читаются из config/rules.yaml")
 
 
+# ============ ПРОПОРЦИОНАЛЬНЫЙ ШАГ СТАВКИ ============
+
+def test_step_is_proportional_to_bid():
+    # bid=100, pct=0.20 → шаг 20 (в пределах кэпа 50)
+    cfg = RulesConfig(bid_step_pct=0.20, max_bid_step=50, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=100, tacos=0.05, score=7.0)], cfg))
+    assert d.action == "raise"
+    assert d.new_bid == 120, d.new_bid
+    print("✓ #1: шаг пропорционален ставке (100 → 120 при 20%)")
+
+
+def test_step_clamped_by_max_step_cap():
+    # bid=100, pct=0.20 → «сырой» шаг 20, но кэп 15 → шаг 15
+    cfg = RulesConfig(bid_step_pct=0.20, max_bid_step=15, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=100, tacos=0.05, score=7.0)], cfg))
+    assert d.new_bid == 115, d.new_bid
+    print("✓ #1: шаг ограничен кэпом max_bid_step")
+
+
+def test_step_floor_at_least_one_tenge():
+    # bid=3, pct=0.20 → сырой 0.6 → округление дало бы 1; минимум 1₸
+    cfg = RulesConfig(bid_step_pct=0.20, max_bid_step=15, min_bid=1, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=3, tacos=0.05, score=7.0)], cfg))
+    assert d.action == "raise"
+    assert d.new_bid == 4, d.new_bid
+    print("✓ #1: шаг не меньше 1₸ (мелкая ставка всё равно двигается)")
+
+
+def test_step_zero_pct_falls_back_to_fixed():
+    # bid_step_pct=0 → старое поведение: фиксированный шаг max_bid_step
+    cfg = RulesConfig(bid_step_pct=0.0, max_bid_step=2, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=18, tacos=0.05, score=7.0)], cfg))
+    assert d.new_bid == 20, d.new_bid
+    print("✓ #1: bid_step_pct=0 → фиксированный шаг (откат к старому)")
+
+
+def test_step_rounds_to_whole_tenge():
+    # bid=10, pct=0.15 → 1.5 → round → 2
+    cfg = RulesConfig(bid_step_pct=0.15, max_bid_step=15, bid_ceiling=1000)
+    d = only(evaluate_slow([sr(bid=10, tacos=0.05, score=7.0)], cfg))
+    assert d.new_bid == 12, d.new_bid
+    print("✓ #1: шаг округляется до целого ₸")
+
+
 if __name__ == "__main__":
     for fn in [
         test_fast_spend_cap_pauses,
@@ -209,6 +260,11 @@ if __name__ == "__main__":
         test_slow_ceiling_clamps_raise,
         test_slow_paused_product_holds,
         test_load_rules_config_reads_yaml,
+        test_step_is_proportional_to_bid,
+        test_step_clamped_by_max_step_cap,
+        test_step_floor_at_least_one_tenge,
+        test_step_zero_pct_falls_back_to_fixed,
+        test_step_rounds_to_whole_tenge,
     ]:
         fn()
     print("-" * 60)
