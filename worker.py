@@ -138,6 +138,8 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
     # выключенный товар → hold. Активные идут в обычные fast/slow.
     controls = ctx.store.list_product_control(campaign_id)
     now_local = now.astimezone(ALMATY)
+    _midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_frac = (now_local - _midnight).total_seconds() / 86400.0
 
     def min_bid_for(sku):
         return resolve_config(ctx.cfg, camp_ov,
@@ -147,7 +149,7 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
         reconciled, controls, now_local, min_bid_for)
 
     if loop == "fast":
-        decisions = evaluate_fast(active, cfg_for, state, daily_budget)
+        decisions = evaluate_fast(active, cfg_for, state, daily_budget, day_frac)
     elif loop == "slow":
         decisions = evaluate_slow(active, cfg_for, state)
     else:

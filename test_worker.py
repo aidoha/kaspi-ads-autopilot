@@ -99,8 +99,8 @@ def test_live_run_sends_put_with_new_bid():
     fm = FakeMarketing([cp(bid=18)], dry_run=False)
     decisions = run_tick(ctx(fm, st, dry_run=False), loop="slow", campaign_id="2711494")
 
-    assert decisions[0].action == "raise" and decisions[0].new_bid == 20
-    assert fm.puts == [(["SKU1"], 20)], "боевой режим шлёт PUT с новой ставкой"
+    assert decisions[0].action == "raise" and decisions[0].new_bid == 22
+    assert fm.puts == [(["SKU1"], 22)], "боевой режим шлёт PUT с новой ставкой"
     print("✓ worker: боевой режим шлёт PUT с новой ставкой")
 
 
@@ -195,16 +195,17 @@ def test_run_cycle_passes_campaign_budget_to_fast_brake():
 
 
 def test_run_tick_uses_per_sku_overrides():
-    """Два SKU в одной кампании: у SKU B override max_bid_step=5 → режет глубже."""
+    """Два SKU в одной кампании: у SKU B override max_bid_step=1 зажимает
+    пропорциональный шаг (round(10×0.20)=2) ниже кэпа → срез мельче, чем у A."""
     st = store_with_revenue({})  # выручка не важна для быстрого контура
-    st.set_override("sku", "B", "max_bid_step", "5", "test", 1)
+    st.set_override("sku", "B", "max_bid_step", "1", "test", 1)
     fm = FakeMarketing([cp(sku="A", merchant_sku="MA", carts=0, clicks=100, bid=10),
                         cp(sku="B", merchant_sku="MB", carts=0, clicks=100, bid=10)],
                        dry_run=True)
     run_tick(ctx(fm, st, dry_run=True), loop="fast", campaign_id="C1", daily_budget=0.0)
     decs = {r["sku"]: r for r in st.get_decisions_for_day(DAY)}
-    assert decs["A"]["new_bid"] == 8   # глобальный шаг 2
-    assert decs["B"]["new_bid"] == 5   # override шаг 5
+    assert decs["A"]["new_bid"] == 8   # глобальный шаг: round(10×0.20)=2, зажат [1,15]
+    assert decs["B"]["new_bid"] == 9   # override кэп max_bid_step=1 < пропорциональный шаг 2
     assert {r["sku"] for r in st.get_campaign_skus("C1")} == {"A", "B"}
     print("✓ worker: run_tick резолвит конфиг на SKU + пишет campaign_id")
 
@@ -291,6 +292,26 @@ def test_run_tick_in_window_runs_rules_as_before():
     print("✓ worker: в рабочем окне товар идёт в обычные правила как раньше")
 
 
+def test_run_tick_fast_paces_by_time_of_day():
+    # NOW=14:00 Алматы → day_frac≈0.583; лимит 1000, tol=1.0 → pace_limit≈583.
+    # cost_today=800 ≥ 583 и < 1000 → мягкий троттлинг (lower), НЕ пауза.
+    st = store_with_revenue({})
+    fm = FakeMarketing([cp(sku="S1", merchant_sku="M1", bid=40, cost_today=800)],
+                       dry_run=True)
+    c = WorkerContext(
+        marketing=fm, store=st,
+        cfg=RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=1.0,
+                        bid_step_pct=0.20, max_bid_step=15, bid_ceiling=1000,
+                        dry_run=True),
+        now_fn=NOW,
+    )
+    decisions = run_tick(c, loop="fast", campaign_id="C1", daily_budget=0.0)
+    d = next(x for x in decisions if x.sku == "S1")
+    assert d.action == "lower", d.action
+    assert "пейсинг" in d.reason
+    print("✓ worker: fast-тик тормозит по пейсингу от времени суток")
+
+
 def test_load_cfg_safe_hot_reload_and_fallback():
     from core.settings_io import save_settings, load_settings
     p = os.path.join(tempfile.mkdtemp(), "rules.yaml")
@@ -325,6 +346,7 @@ if __name__ == "__main__":
     test_run_tick_disabled_product_not_touched()
     test_run_tick_out_of_window_lowers_to_floor()
     test_run_tick_in_window_runs_rules_as_before()
+    test_run_tick_fast_paces_by_time_of_day()
     test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)
     print("✓ Все проверки worker прошли")
