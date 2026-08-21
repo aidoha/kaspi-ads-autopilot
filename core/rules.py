@@ -36,6 +36,7 @@ class RulesConfig:
     min_bid: float = 1
     min_score_for_raise: float = 4.0
     cpc_headroom: float = 2.0   # #3: не поднимать, если bid > avg_cpc×это; 0 = выкл
+    pace_tolerance: float = 1.25   # #5: слак пейсинга (лимит×день×это); 0 = выкл
     dry_run: bool = True
     campaign_ids: list[str] | None = None   # allowlist кампаний; None/пусто = все активные
 
@@ -114,34 +115,44 @@ def _stepped(s, direction: str, loop: str, reason: str, cfg: RulesConfig) -> Dec
 
 def evaluate_fast(
     skus: list, cfg: RulesConfig | None = None, state: dict | None = None,
-    daily_budget: float = 0.0,
+    daily_budget: float = 0.0, day_frac: float = 1.0,
 ) -> list[Decision]:
     out: list[Decision] = []
     for s in skus:
         out.append(_eval_fast_one(s, _cfg_for(cfg, s),
-                                  _state_for(state, s.sku), daily_budget))
+                                  _state_for(state, s.sku), daily_budget, day_frac))
     return out
 
 
 def _eval_fast_one(s, cfg: RulesConfig, st: DailyState,
-                   daily_budget: float = 0.0) -> Decision:
+                   daily_budget: float = 0.0, day_frac: float = 1.0) -> Decision:
     if s.product_state != "Active":
         return _hold(s, "fast", "товар не Active — ставку не трогаем")
 
-    # Спенд-кап важнее лимита изменений: слив бюджета тормозим всегда.
-    # Лимит на SKU считаем от дневного бюджета кампании (dailyBudget из кабинета);
-    # если бюджет недоступен (0) — фолбэк на абсолютный daily_sku_cost_limit.
-    # Эндпоинта «паузы» нет — режем ставку в пол (min_bid), это и есть стоп.
+    # Лимит расхода на SKU: доля дневного бюджета кампании, фолбэк — абсолютный.
     if daily_budget > 0:
         limit = daily_budget * cfg.sku_budget_fraction
         src = f"{int(cfg.sku_budget_fraction * 100)}% бюджета {daily_budget:g}"
     else:
         limit = cfg.daily_sku_cost_limit
         src = f"фолбэк-лимит {cfg.daily_sku_cost_limit:g}"
+
+    # Жёсткий стоп: слив всего лимита тормозим всегда (освобождён от лимита изменений).
     if s.cost_today >= limit:
         return Decision(s.sku, s.merchant_sku, s.bid, cfg.min_bid, "pause", "fast",
                         f"costToday={s.cost_today:g} ≥ {src} = {limit:g} "
                         f"→ пауза (ставка в пол {cfg.min_bid:g})")
+
+    # Пейсинг: опережаем план трат по времени суток → мягко тормозим (освобождён
+    # от лимита изменений — та же защита бюджета, что и жёсткий стоп; только снижает,
+    # ограничен снизу min_bid, поэтому churn самоограничивается).
+    if cfg.pace_tolerance > 0 and limit > 0:
+        pace_limit = limit * day_frac * cfg.pace_tolerance
+        if s.cost_today >= pace_limit:
+            return _stepped(s, "lower", "fast",
+                            f"пейсинг: costToday={s.cost_today:g} опережает план "
+                            f"{pace_limit:g} (лимит {limit:g}×{day_frac:.2f}×{cfg.pace_tolerance:g})",
+                            cfg)
 
     if st.changes_today >= cfg.max_changes_per_day:
         return _hold(s, "fast", f"исчерпан лимит изменений/сутки ({cfg.max_changes_per_day})")

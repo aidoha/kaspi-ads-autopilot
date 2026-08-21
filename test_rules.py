@@ -113,6 +113,66 @@ def test_fast_spend_cap_fallback_without_budget():
     print("✓ rules: без бюджета — фолбэк на абсолютный лимит")
 
 
+# ============ ПЕЙСИНГ БЮДЖЕТА (#5, мягкий троттл до жёсткого стопа) ============
+
+def test_pacing_throttles_when_ahead_of_pace():
+    # лимит=1000 (фолбэк), день прошёл на 50%, tol=1.0 → pace_limit=500.
+    # cost_today=600 ≥ 500, но < 1000 → троттлинг (lower на шаг), НЕ пауза.
+    cfg = RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=1.0,
+                      bid_step_pct=0.20, max_bid_step=15, bid_ceiling=1000)
+    d = only(evaluate_fast([sr(cost_today=600, bid=40, carts=8, clicks=100)],
+                           cfg, day_frac=0.5))
+    assert d.action == "lower", d.action
+    assert "пейсинг" in d.reason or "опережа" in d.reason
+    print("✓ #5: опережение плана трат → мягкий троттлинг (не пауза)")
+
+
+def test_pacing_hard_cap_still_pauses_first():
+    # cost_today ≥ полного лимита → пауза (жёсткий стоп раньше троттла)
+    cfg = RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=1.0, bid_ceiling=1000)
+    d = only(evaluate_fast([sr(cost_today=1000, bid=40)], cfg, day_frac=0.5))
+    assert d.action == "pause", d.action
+    print("✓ #5: жёсткий спенд-кап бьёт раньше пейсинга")
+
+
+def test_pacing_zero_tolerance_disables():
+    # pace_tolerance=0 → троттла нет, только жёсткий стоп; здесь hold
+    cfg = RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=0.0, bid_ceiling=1000)
+    d = only(evaluate_fast([sr(cost_today=600, bid=40, carts=8, clicks=100)],
+                           cfg, day_frac=0.5))
+    assert d.action == "hold", d.action
+    print("✓ #5: pace_tolerance=0 → пейсинг выключен")
+
+
+def test_pacing_under_pace_holds():
+    # cost_today ниже pace_limit → обычная логика, hold
+    cfg = RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=1.25, bid_ceiling=1000)
+    d = only(evaluate_fast([sr(cost_today=100, bid=40, carts=8, clicks=100)],
+                           cfg, day_frac=0.5))
+    assert d.action == "hold", d.action
+    print("✓ #5: трата в пределах плана → hold")
+
+
+def test_pacing_exempt_from_change_limit():
+    # даже при исчерпанном лимите изменений пейсинг должен сработать (защита бюджета)
+    cfg = RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=1.0,
+                      max_changes_per_day=3, bid_step_pct=0.20, max_bid_step=15,
+                      bid_ceiling=1000)
+    state = {"166350900": DailyState(changes_today=3)}
+    d = only(evaluate_fast([sr(cost_today=600, bid=40, carts=8, clicks=100)],
+                           cfg, state=state, day_frac=0.5))
+    assert d.action == "lower", d.action
+    print("✓ #5: пейсинг освобождён от лимита изменений/сутки")
+
+
+def test_pacing_default_day_frac_one_no_effect():
+    # day_frac=1.0 (дефолт) → pace_limit=лимит×tol ≥ лимит → троттла нет
+    cfg = RulesConfig(daily_sku_cost_limit=1000, pace_tolerance=1.25, bid_ceiling=1000)
+    d = only(evaluate_fast([sr(cost_today=600, bid=40, carts=8, clicks=100)], cfg))
+    assert d.action == "hold", d.action
+    print("✓ #5: day_frac=1.0 (дефолт) → пейсинг не влияет")
+
+
 # ============ МЕДЛЕННЫЙ КОНТУР (по TACoS) ============
 
 def test_slow_in_corridor_holds():
@@ -291,6 +351,12 @@ if __name__ == "__main__":
         test_change_limit_blocks_fast_cut,
         test_fast_spend_cap_from_campaign_budget,
         test_fast_spend_cap_fallback_without_budget,
+        test_pacing_throttles_when_ahead_of_pace,
+        test_pacing_hard_cap_still_pauses_first,
+        test_pacing_zero_tolerance_disables,
+        test_pacing_under_pace_holds,
+        test_pacing_exempt_from_change_limit,
+        test_pacing_default_day_frac_one_no_effect,
         test_evaluate_fast_accepts_cfg_callable,
         test_slow_in_corridor_holds,
         test_slow_below_corridor_raises,
