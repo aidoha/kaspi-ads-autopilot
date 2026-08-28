@@ -349,6 +349,27 @@ def test_settings_page_shows_new_fields():
     print("✓ webui: форма настроек показывает новые поля с подписями")
 
 
+def test_settings_page_has_tacos_window_field():
+    client, rules, db_path = _client_logged_in()
+    html = client.get("/settings").text
+    assert 'name="tacos_window_days"' in html, "нет поля окна TACoS"
+    assert 'list="tacos-window-presets"' in html, "поле не привязано к datalist"
+    assert 'id="tacos-window-presets"' in html, "нет datalist пресетов"
+    for preset in ("2", "7", "14", "30"):
+        assert f'value="{preset}"' in html, f"нет пресета {preset}"
+    print("✓ webui: страница настроек содержит поле окна TACoS с пресетами")
+
+
+def test_dashboard_shows_tacos_window():
+    client, rules, db_path = _client_logged_in()
+    data = load_settings(rules)
+    data["tacos_window_days"] = 7
+    save_settings(rules, data)
+    html = client.get("/").text
+    assert "последние 7 дн." in html, "дашборд не подписывает окно TACoS значением из конфига"
+    print("✓ webui: дашборд подписывает секцию TACoS числом дней окна из конфига")
+
+
 if __name__ == "__main__":
     test_dt_filter_renders_almaty_not_server_tz()
     test_password_hash_roundtrip()
@@ -368,5 +389,7 @@ if __name__ == "__main__":
     test_dashboard_shows_freshness()
     test_refresh_requires_login_and_is_best_effort()
     test_settings_page_shows_new_fields()
+    test_settings_page_has_tacos_window_field()
+    test_dashboard_shows_tacos_window()
     print("-" * 60)
     print("✓ Все проверки webui прошли")

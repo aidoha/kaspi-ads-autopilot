@@ -36,7 +36,7 @@
   </p>
 {% endif %}
 
-<p class="lead">Данные за {{ day }} — решения биддера, TACoS и текущие ставки по SKU из <code>db/autopilot.db</code>.</p>
+<p class="lead">Данные за {{ day }} — решения биддера, TACoS (за последние {{ tacos_window_days }} дн.) и текущие ставки по SKU из <code>db/autopilot.db</code>.</p>
 
 <h2>Решения за день — по товарам</h2>
 <div class="table-wrap">
@@ -72,7 +72,7 @@
   {% endif %}
 </div>
 
-<h2>TACoS по SKU</h2>
+<h2>TACoS по SKU <span class="hint">— за последние {{ tacos_window_days }} дн.</span></h2>
 <div class="table-wrap">
   {% if tacos %}
   <table>

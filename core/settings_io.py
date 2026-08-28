@@ -9,7 +9,7 @@ from core.rules import RulesConfig, load_rules_config
 
 # Порядок = порядок полей в форме UI.
 SETTINGS_FIELDS = [
-    "target_tacos_low", "target_tacos_high",
+    "target_tacos_low", "target_tacos_high", "tacos_window_days",
     "daily_sku_cost_limit", "sku_budget_fraction",
     "min_clicks_for_no_cart_cut", "cpc_spike_pct",
     "max_bid_step", "max_changes_per_day",
@@ -70,6 +70,17 @@ def validate_settings(data: dict) -> list[str]:
         errs.append("cpc_headroom: не отрицательный")
     if pace is not None and pace < 0:
         errs.append("pace_tolerance: не отрицательный")
+    tw = data.get("tacos_window_days")
+    try:
+        tw_f = float(tw)
+        if not math.isfinite(tw_f):
+            errs.append("tacos_window_days: не конечное число")
+        elif tw_f != int(tw_f):
+            errs.append("tacos_window_days: должно быть целым числом дней")
+        elif not (1 <= int(tw_f) <= 90):
+            errs.append("tacos_window_days: должно быть в диапазоне 1..90 дней")
+    except (TypeError, ValueError):
+        errs.append("tacos_window_days: не число")
     cids = data.get("campaign_ids")
     if cids not in (None, "") and not isinstance(cids, list):
         errs.append("campaign_ids: список строк или пусто")
@@ -88,6 +99,7 @@ def save_settings(path: str, data: dict) -> None:
     out = {
         "target_tacos_low": float(data["target_tacos_low"]),
         "target_tacos_high": float(data["target_tacos_high"]),
+        "tacos_window_days": int(float(data["tacos_window_days"])),
         "daily_sku_cost_limit": float(data["daily_sku_cost_limit"]),
         "sku_budget_fraction": float(data["sku_budget_fraction"]),
         "min_clicks_for_no_cart_cut": int(float(data["min_clicks_for_no_cart_cut"])),

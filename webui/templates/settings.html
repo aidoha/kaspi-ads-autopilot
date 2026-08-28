@@ -17,6 +17,7 @@
   'bid_step_pct': {'label': 'Шаг ставки, доля', 'hint': 'Пропорциональный шаг: доля от текущей ставки за одно изменение (0.20 = 20%). 0 = фиксированный шаг из «Макс. шаг».'},
   'cpc_headroom': {'label': 'Запас над ценой клика (avg_cpc)', 'hint': 'Не поднимать ставку, если она уже выше средней цены клика в это число раз (2.0 = вдвое). 0 = проверка выключена.'},
   'pace_tolerance': {'label': 'Слак пейсинга бюджета', 'hint': 'Насколько можно опережать равномерный план трат по времени суток до мягкого притормаживания (1.25 = +25%). 0 = пейсинг выключен, остаётся только жёсткий лимит.'},
+  'tacos_window_days': {'label': 'Окно TACoS, дней', 'hint': 'За сколько дней считать TACoS для решений биддера. Больше дней = стабильнее, но реакция медленнее; 30 дней заметно нагружает обход Shop API.'},
 } %}
 
 <h1>Настройки биддера</h1>
@@ -37,7 +38,20 @@
   <form method="post" action="/settings">
     <div class="settings-grid">
       {% for f in fields %}
-        {% if f not in ('dry_run', 'campaign_ids') %}
+        {% if f == 'tacos_window_days' %}
+        <div class="field">
+          <label for="{{ f }}">{{ field_meta[f].label }}</label>
+          <input type="number" min="1" max="90" step="1" id="{{ f }}" name="{{ f }}"
+                 value="{{ s[f] }}" list="tacos-window-presets" required>
+          <datalist id="tacos-window-presets">
+            <option value="2">2 дня</option>
+            <option value="7">7 дней</option>
+            <option value="14">14 дней</option>
+            <option value="30">30 дней</option>
+          </datalist>
+          <span class="hint">{{ field_meta[f].hint }}</span>
+        </div>
+        {% elif f not in ('dry_run', 'campaign_ids') %}
         <div class="field">
           <label for="{{ f }}">{{ field_meta[f].label if f in field_meta else f }}</label>
           <input type="number" step="any" id="{{ f }}" name="{{ f }}" value="{{ s[f] }}" required>

@@ -129,6 +129,29 @@ def test_revenue_cycle_fills_cache():
     print("✓ worker: revenue-цикл наполняет кэш выручки")
 
 
+def test_revenue_cycle_uses_cfg_window_days():
+    d = tempfile.mkdtemp()
+    st = Store(os.path.join(d, "w.db"))
+
+    class CapturingCollector:
+        def __init__(self):
+            self.seen = None
+        def collect(self, window_days=2, now=None):
+            self.seen = window_days
+            return {}
+
+    cc = CapturingCollector()
+    c = WorkerContext(
+        marketing=None, store=st,
+        cfg=RulesConfig(dry_run=True, tacos_window_days=7),
+        window_days=RulesConfig(tacos_window_days=7).tacos_window_days,
+        revenue_collector=cc, now_fn=NOW,
+    )
+    run_revenue_cycle(c)
+    assert cc.seen == 7, f"ожидали окно 7, воркер передал {cc.seen}"
+    print("✓ worker: revenue-цикл считает выручку за cfg.tacos_window_days")
+
+
 def _camps(*pairs):
     return [Campaign(id=i, name=n, state="Enabled") for i, n in pairs]
 
@@ -335,6 +358,7 @@ if __name__ == "__main__":
     test_live_run_sends_put_with_new_bid()
     test_fast_pause_cuts_bid_to_min()
     test_revenue_cycle_fills_cache()
+    test_revenue_cycle_uses_cfg_window_days()
     test_run_cycle_ticks_every_active_campaign()
     test_run_cycle_allowlist_narrows()
     test_run_cycle_isolates_failing_campaign()

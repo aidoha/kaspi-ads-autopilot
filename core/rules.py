@@ -25,6 +25,7 @@ class RulesConfig:
     """Пороги движка. Дефолты = консервативный старт (совпадают с config/rules.yaml)."""
     target_tacos_low: float = 0.08
     target_tacos_high: float = 0.15
+    tacos_window_days: int = 2   # окно расчёта TACoS (дни) для решений биддера
     daily_sku_cost_limit: float = 3000
     sku_budget_fraction: float = 0.5   # доля дневного бюджета кампании на один SKU
     min_clicks_for_no_cart_cut: int = 40

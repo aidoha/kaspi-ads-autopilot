@@ -215,11 +215,13 @@ def create_app() -> FastAPI:
         finally:
             store.close()
         budgets = _get_campaign_budgets()
+        tacos_window_days = load_settings(rules_path).get("tacos_window_days", 2)
         return templates.TemplateResponse(request, "dashboard.html", {
             "user": user(request), "day": day,
             "decisions_by_sku": decisions_by_sku, "tacos": tacos_rows,
             "budgets": budgets, "last_snapshot_ts": last_ts,
-            "sku_names": sku_names})
+            "sku_names": sku_names,
+            "tacos_window_days": tacos_window_days})
 
     @app.get("/positions", response_class=HTMLResponse)
     def positions(request: Request):
