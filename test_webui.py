@@ -360,6 +360,13 @@ def test_settings_page_has_tacos_window_field():
     print("✓ webui: страница настроек содержит поле окна TACoS с пресетами")
 
 
+def test_dashboard_shows_tacos_window():
+    client, rules, db_path = _client_logged_in()
+    html = client.get("/").text
+    assert "последние 2" in html or "за 2" in html, "дашборд не подписывает окно TACoS"
+    print("✓ webui: дашборд подписывает секцию TACoS числом дней окна")
+
+
 if __name__ == "__main__":
     test_dt_filter_renders_almaty_not_server_tz()
     test_password_hash_roundtrip()
@@ -380,5 +387,6 @@ if __name__ == "__main__":
     test_refresh_requires_login_and_is_best_effort()
     test_settings_page_shows_new_fields()
     test_settings_page_has_tacos_window_field()
+    test_dashboard_shows_tacos_window()
     print("-" * 60)
     print("✓ Все проверки webui прошли")
