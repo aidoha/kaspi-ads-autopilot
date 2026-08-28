@@ -303,6 +303,7 @@ def main():  # pragma: no cover
         campaign_ids = cfg.campaign_ids or env_ids
         return WorkerContext(marketing=marketing, store=store, cfg=cfg,
                              campaign_ids=campaign_ids,
+                             window_days=cfg.tacos_window_days,
                              revenue_collector=revenue_collector)
 
     # Смоук-режим: разовый прогон всего конвейера и выход (без планировщика).
