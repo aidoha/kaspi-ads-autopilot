@@ -363,7 +363,7 @@ def test_settings_page_has_tacos_window_field():
 def test_dashboard_shows_tacos_window():
     client, rules, db_path = _client_logged_in()
     html = client.get("/").text
-    assert "последние 2" in html or "за 2" in html, "дашборд не подписывает окно TACoS"
+    assert "последние 2 дн." in html, "дашборд не подписывает окно TACoS числом дней"
     print("✓ webui: дашборд подписывает секцию TACoS числом дней окна")
 
 
