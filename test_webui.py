@@ -362,9 +362,12 @@ def test_settings_page_has_tacos_window_field():
 
 def test_dashboard_shows_tacos_window():
     client, rules, db_path = _client_logged_in()
+    data = load_settings(rules)
+    data["tacos_window_days"] = 7
+    save_settings(rules, data)
     html = client.get("/").text
-    assert "последние 2 дн." in html, "дашборд не подписывает окно TACoS числом дней"
-    print("✓ webui: дашборд подписывает секцию TACoS числом дней окна")
+    assert "последние 7 дн." in html, "дашборд не подписывает окно TACoS значением из конфига"
+    print("✓ webui: дашборд подписывает секцию TACoS числом дней окна из конфига")
 
 
 if __name__ == "__main__":
