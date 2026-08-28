@@ -154,6 +154,34 @@ def test_settings_roundtrip_new_fields():
     print("✓ settings: новые поля переживают save→load")
 
 
+def test_tacos_window_days_default_valid():
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    assert "tacos_window_days" in base, "поле не попало в SETTINGS_FIELDS"
+    assert base["tacos_window_days"] == 2
+    assert validate_settings(base) == []
+    print("✓ settings: tacos_window_days есть в полях, дефолт 2 валиден")
+
+
+def test_tacos_window_days_rejects_bad():
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    assert any("tacos_window_days" in e for e in validate_settings(dict(base, tacos_window_days=0)))
+    assert any("tacos_window_days" in e for e in validate_settings(dict(base, tacos_window_days=91)))
+    assert any("tacos_window_days" in e for e in validate_settings(dict(base, tacos_window_days=2.5)))
+    assert any("tacos_window_days" in e for e in validate_settings(dict(base, tacos_window_days="abc")))
+    print("✓ settings: tacos_window_days отвергает <1, >90, дробное, не-число")
+
+
+def test_tacos_window_days_roundtrip():
+    import tempfile, os
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    data = dict(base, tacos_window_days=7)
+    path = os.path.join(tempfile.mkdtemp(), "rules.yaml")
+    save_settings(path, data)
+    assert load_settings(path)["tacos_window_days"] == 7
+    assert load_rules_config(path).tacos_window_days == 7   # воркерский загрузчик понимает
+    print("✓ settings: tacos_window_days переживает save→load и читается воркером")
+
+
 if __name__ == "__main__":
     test_validate_catches_bad_values()
     test_save_load_roundtrip_and_loadable_by_worker()
@@ -164,5 +192,8 @@ if __name__ == "__main__":
     test_settings_accepts_new_field_defaults()
     test_settings_rejects_bad_new_fields()
     test_settings_roundtrip_new_fields()
+    test_tacos_window_days_default_valid()
+    test_tacos_window_days_rejects_bad()
+    test_tacos_window_days_roundtrip()
     print("-" * 60)
     print("✓ Все проверки settings_io прошли")
