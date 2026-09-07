@@ -2,7 +2,8 @@
 worker.py — оркестрация автопилота. Два независимых расписания + цикл выручки.
 
   • run_tick(ctx, "fast")  — часто (15–30 мин): тормозной контур.
-  • run_tick(ctx, "slow")  — 1–2 раза в день: разгон/снижение по TACoS.
+  • run_tick(ctx, "slow")  — несколько раз в день (9,12,15,18,21 Алматы):
+    разгон/снижение по TACoS. Потолок правок на SKU — max_changes_per_day.
   • run_revenue_cycle(ctx) — реже (напр. раз в час): тяжёлый обход Shop API,
     обновляет revenue_cache в SQLite (тик берёт выручку уже из кэша, не из сети).
 
@@ -323,8 +324,8 @@ def main():  # pragma: no cover
                   id="revenue")
     sched.add_job(lambda: run_cycle(build_ctx(), "fast"), "interval", minutes=5,
                   id="fast")
-    sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron", hour="10,20",
-                  id="slow")
+    sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron",
+                  hour="9,12,15,18,21", id="slow")
     # Позиционный трекер шлём отдельным флагом: с IP датацентра Kaspi режет
     # веб-каталог (429), поэтому на VPS job держим выключенным, пока не подключим
     # KZ-резидентный прокси (KASPI_SEARCH_PROXY). На резидентном IP — включён.
@@ -352,7 +353,7 @@ def main():  # pragma: no cover
         log.info("LLM-аналитик ВЫКЛЮЧЕН (ANALYST_ENABLED=0)")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/10:00,20:00%s%s (Алматы)",
+             "fast/5м, slow/9,12,15,18,21%s%s (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные",
              ", analyst/22:00" if analyst_enabled else " (analyst ВЫКЛ)",
              ", positions/15м" if positions_enabled else " (positions ВЫКЛ)")
