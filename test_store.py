@@ -285,6 +285,24 @@ def test_product_control_upsert_and_list():
     print("✓ store: product_control upsert и list + all_product_controls")
 
 
+def test_bid_parking_roundtrip():
+    with tempfile.TemporaryDirectory() as d:
+        s = Store(os.path.join(d, "t.db"))
+        assert s.get_parked_bids("C1") == {}          # пусто по умолчанию
+        s.set_parked_bid("C1", "S1", 180.0, 1000)
+        s.set_parked_bid("C1", "S2", 75.0, 1000)
+        s.set_parked_bid("C2", "S9", 10.0, 1000)      # другая кампания
+        assert s.get_parked_bids("C1") == {"S1": 180.0, "S2": 75.0}
+        # upsert перезаписывает
+        s.set_parked_bid("C1", "S1", 200.0, 2000)
+        assert s.get_parked_bids("C1")["S1"] == 200.0
+        # clear убирает одну запись
+        s.clear_parked_bid("C1", "S1")
+        assert s.get_parked_bids("C1") == {"S2": 75.0}
+        s.close()
+    print("✓ store: bid_parking set/get/clear")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -301,5 +319,6 @@ if __name__ == "__main__":
     test_product_names_and_sku_map()
     test_product_control_default_when_absent()
     test_product_control_upsert_and_list()
+    test_bid_parking_roundtrip()
     print("-" * 60)
     print("✓ Все проверки store прошли")

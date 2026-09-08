@@ -85,6 +85,19 @@ class Store:
                 PRIMARY KEY (campaign_id, sku)
             );
 
+            -- Запаркованная ставка: последний рабочий уровень товара перед тем,
+            -- как дейпарт уронил его в пол на ночь. Утром при открытии окна
+            -- ставка восстанавливается из этой записи и запись стирается.
+            -- Рантайм-состояние (не пользовательская настройка) — держим отдельно
+            -- от product_control, чтобы не мешать с расписанием.
+            CREATE TABLE IF NOT EXISTS bid_parking (
+                campaign_id TEXT,
+                sku         TEXT,
+                parked_bid  REAL,
+                ts          INTEGER,
+                PRIMARY KEY (campaign_id, sku)
+            );
+
             -- Человекочитаемые названия товаров. Ключ — merchant_sku (offer.code),
             -- т.к. эндпоинт товаров кампании названий не отдаёт, а Shop API отдаёт
             -- их в позициях заказа (OrderEntry.name). Заполняется revenue-циклом.
@@ -425,6 +438,34 @@ class Store:
                  ProductControl(bool(r["enabled"]), r["window_start"],
                                 r["window_end"], r["days_mask"]))
                 for r in rows]
+
+    # ---- парковка ставки (ночной сброс → утреннее восстановление) -----------
+
+    def get_parked_bids(self, campaign_id: str) -> dict[str, float]:
+        """Запаркованные ставки кампании {sku: parked_bid}. Пусто, если парковок нет."""
+        rows = self._conn.execute(
+            "SELECT sku, parked_bid FROM bid_parking WHERE campaign_id=?",
+            (campaign_id,),
+        ).fetchall()
+        return {r["sku"]: r["parked_bid"] for r in rows}
+
+    def set_parked_bid(self, campaign_id: str, sku: str, bid: float,
+                       ts: int) -> None:
+        self._conn.execute(
+            """INSERT INTO bid_parking (campaign_id, sku, parked_bid, ts)
+               VALUES (?,?,?,?)
+               ON CONFLICT(campaign_id, sku) DO UPDATE SET
+                 parked_bid=excluded.parked_bid, ts=excluded.ts""",
+            (campaign_id, sku, bid, ts),
+        )
+        self._conn.commit()
+
+    def clear_parked_bid(self, campaign_id: str, sku: str) -> None:
+        self._conn.execute(
+            "DELETE FROM bid_parking WHERE campaign_id=? AND sku=?",
+            (campaign_id, sku),
+        )
+        self._conn.commit()
 
     # ---- снапшоты позиций ---------------------------------------------------
 

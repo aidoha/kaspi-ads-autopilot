@@ -315,6 +315,32 @@ def test_run_tick_in_window_runs_rules_as_before():
     print("✓ worker: в рабочем окне товар идёт в обычные правила как раньше")
 
 
+def test_run_tick_parks_bid_when_leaving_window():
+    # ночь (3:00), окно 8..23 → роняем в пол И запоминаем прежнюю ставку 180
+    night = lambda: datetime(2026, 8, 9, 3, 0, tzinfo=ALMATY)
+    ctx, mk, store = _ctx_with([cp(sku="S1", bid=180)], dry_run=False, now=night)
+    store.set_product_control("C1", "S1", True, 8, 23, 127, "t", 1)
+    run_tick(ctx, "fast", "C1")
+    assert (["S1"], 1) in mk.puts               # ставка ушла в пол
+    assert store.get_parked_bids("C1") == {"S1": 180}   # запомнили рабочий уровень
+    print("✓ worker: выход из окна паркует прежнюю ставку")
+
+
+def test_run_tick_restores_parked_bid_in_morning():
+    # утро (8:00), окно 8..23, ставка в полу (1), запаркованы 180 → возвращаем 180
+    morning = lambda: datetime(2026, 8, 9, 8, 0, tzinfo=ALMATY)
+    ctx, mk, store = _ctx_with([cp(sku="S1", bid=1)], dry_run=False, now=morning)
+    store.set_product_control("C1", "S1", True, 8, 23, 127, "t", 1)
+    store.set_override("sku", "S1", "bid_ceiling", "250", "t", 1)  # чтобы 180 ≤ потолка
+    store.set_parked_bid("C1", "S1", 180.0, 1)
+    decisions = run_tick(ctx, "fast", "C1")
+    d = [x for x in decisions if x.sku == "S1"][0]
+    assert d.action == "raise" and d.new_bid == 180
+    assert (["S1"], 180) in mk.puts             # реальный PUT вернул ставку
+    assert store.get_parked_bids("C1") == {}    # парковка очищена — восстановили один раз
+    print("✓ worker: утром в начале окна ставка возвращается из парковки")
+
+
 def test_run_tick_fast_paces_by_time_of_day():
     # NOW=14:00 Алматы → day_frac≈0.583; лимит 1000, tol=1.0 → pace_limit≈583.
     # cost_today=800 ≥ 583 и < 1000 → мягкий троттлинг (lower), НЕ пауза.
@@ -370,6 +396,8 @@ if __name__ == "__main__":
     test_run_tick_disabled_product_not_touched()
     test_run_tick_out_of_window_lowers_to_floor()
     test_run_tick_in_window_runs_rules_as_before()
+    test_run_tick_parks_bid_when_leaving_window()
+    test_run_tick_restores_parked_bid_in_morning()
     test_run_tick_fast_paces_by_time_of_day()
     test_load_cfg_safe_hot_reload_and_fallback()
     print("-" * 60)

@@ -559,8 +559,15 @@ def create_app() -> FastAPI:
                 def min_bid_for(sk):
                     return resolve_config(g, camp_ov, store.get_overrides("sku", sk)).min_bid
 
-                active, ctrl_dec = split_by_control(
-                    reconciled, controls, datetime.now(ALMATY), min_bid_for)
+                def ceiling_for(sk):
+                    return resolve_config(g, camp_ov, store.get_overrides("sku", sk)).bid_ceiling
+
+                # Превью сухое: парковку читаем (чтобы показать восстановление),
+                # но НЕ сохраняем/не чистим — это делает только боевой worker.run_tick.
+                parked = store.get_parked_bids(campaign_id)
+                active, ctrl_dec, _parking = split_by_control(
+                    reconciled, controls, datetime.now(ALMATY), min_bid_for,
+                    parked, ceiling_for)
                 if ctrl_dec:
                     d = ctrl_dec[0]
                     preview = {"control": (d.action, d.reason)}

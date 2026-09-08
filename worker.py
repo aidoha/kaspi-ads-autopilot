@@ -146,8 +146,19 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
         return resolve_config(ctx.cfg, camp_ov,
                               ctx.store.get_overrides("sku", sku)).min_bid
 
-    active, control_decisions = split_by_control(
-        reconciled, controls, now_local, min_bid_for)
+    def ceiling_for(sku):
+        return resolve_config(ctx.cfg, camp_ov,
+                              ctx.store.get_overrides("sku", sku)).bid_ceiling
+
+    # Парковка ставки: вечером запоминаем рабочий уровень перед сбросом в пол,
+    # утром при открытии окна возвращаем его одним движением (см. core/daypart).
+    parked_bids = ctx.store.get_parked_bids(campaign_id)
+    active, control_decisions, parking = split_by_control(
+        reconciled, controls, now_local, min_bid_for, parked_bids, ceiling_for)
+
+    # Запоминаем ДО применения — даже если PUT в пол упадёт, уровень не потерян.
+    for psku, pbid in parking["park"].items():
+        ctx.store.set_parked_bid(campaign_id, psku, pbid, ts)
 
     if loop == "fast":
         decisions = evaluate_fast(active, cfg_for, state, daily_budget, day_frac)
@@ -158,6 +169,11 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
 
     decisions = control_decisions + decisions
     _apply_and_log(ctx, decisions, day, ts, campaign_id)
+
+    # Чистим парковку ПОСЛЕ успешного применения: если восстановительный PUT
+    # упадёт (run_tick пробросит), запись останется — восстановим на след. тике.
+    for usku in parking["unpark"]:
+        ctx.store.clear_parked_bid(campaign_id, usku)
     log.info("Тик %s: решений=%s, изменений=%s", loop, len(decisions),
              sum(1 for d in decisions if d.changed))
     return decisions
