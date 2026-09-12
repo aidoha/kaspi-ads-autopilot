@@ -290,6 +290,66 @@ def test_product_detail_requires_login():
     print("✓ api: товары требуют входа")
 
 
+def test_series_separates_tick_scale_from_day_scale():
+    """Ставка живёт по тикам, метрики — по дням. Класть их в одну сетку
+    нельзя: тиков за день несколько, а дневная метрика одна."""
+    c, _, db = _logged_in()
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo("Asia/Almaty")).date().isoformat()
+    import time as _t
+    now = int(_t.time())
+    _seed_snapshot(db, "c1", "s1", bid=32, ts=now - 7200)
+    _seed_snapshot(db, "c1", "s1", bid=36, ts=now - 3600)
+    _seed_metrics(db, day, [("c1", "s1", 1000, 10000, 0, 100, 8)])
+
+    r = c.get("/api/products/c1/s1/series?days=7")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [p["bid"] for p in body["ticks"]] == [32, 36], body["ticks"]
+    assert len(body["daily"]) == 1, body["daily"]
+    assert body["daily"][0]["day"] == day, body["daily"][0]
+    assert abs(body["daily"][0]["tacos"] - 0.1) < 1e-9, body["daily"][0]
+    print("✓ api: /series разделяет шкалу тиков и шкалу дней")
+
+
+def test_series_corridor_reflects_effective_config():
+    """Коридор на графике TACoS — это эффективные границы ИМЕННО этого товара,
+    с учётом переопределений, а не глобальные значения."""
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=32, ts=1_700_000_000)
+    s = Store(db)
+    try:
+        s.set_override("sku", "s1", "target_tacos_high", "0.25", user="a", ts=1)
+    finally:
+        s.close()
+
+    corridor = c.get("/api/products/c1/s1/series?days=7").json()["corridor"]
+    assert abs(corridor["high"] - 0.25) < 1e-9, corridor
+    print("✓ api: коридор TACoS берётся из эффективного конфига товара")
+
+
+def test_series_carries_decision_reasons():
+    c, _, db = _logged_in()
+    import time as _t
+    from core.rules import Decision
+    s = Store(db)
+    try:
+        s.log_decision(
+            Decision(sku="s1", merchant_sku="ms1", old_bid=32, new_bid=36,
+                     action="raise", loop="slow", reason="cart-rate выше цели"),
+            ts=int(_t.time()) - 60, day="2026-09-13", applied=True,
+            campaign_id="c1")
+    finally:
+        s.close()
+
+    marks = c.get("/api/products/c1/s1/series?days=7").json()["decisions"]
+    assert len(marks) == 1, marks
+    assert marks[0]["action"] == "raise", marks[0]
+    assert marks[0]["reason"] == "cart-rate выше цели", marks[0]
+    print("✓ api: маркеры решений несут причину")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -307,5 +367,8 @@ if __name__ == "__main__":
     test_product_detail_returns_effective_config_and_owned_fields()
     test_products_list_gives_one_row_per_product_not_per_campaign()
     test_product_detail_requires_login()
+    test_series_separates_tick_scale_from_day_scale()
+    test_series_corridor_reflects_effective_config()
+    test_series_carries_decision_reasons()
     print("-" * 60)
     print("✓ Все проверки API прошли")

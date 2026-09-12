@@ -131,6 +131,27 @@ def build_router(ctx: ApiContext) -> APIRouter:
             "decisions": decisions,
         }
 
+    @router.get("/products/{campaign_id}/{sku}/series")
+    def product_series(campaign_id: str, sku: str, days: int = 14,
+                       user: str = Depends(require_user)):
+        """Ряды для графиков. Две шкалы времени лежат в РАЗНЫХ массивах:
+        ставка и CPC имеют внутридневное разрешение (несколько тиков в сутки),
+        а TACoS/CTR/CR — ровно по одной точке на день. Складывать их в общую
+        сетку точек нельзя — получится ложь на обеих осях."""
+        days = max(1, min(int(days), 90))
+        with open_store(ctx) as store:
+            ticks = store.get_snapshot_series(sku, days)
+            daily = store.get_metrics_series(sku, days)
+            marks = store.get_decision_markers(sku, days)
+            values, _ = _effective(store, campaign_id, sku)
+        return {
+            "ticks": ticks,
+            "daily": daily,
+            "decisions": marks,
+            "corridor": {"low": values["target_tacos_low"],
+                         "high": values["target_tacos_high"]},
+        }
+
     return router
 
 
