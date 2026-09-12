@@ -16,7 +16,6 @@ APScheduler и построение боевых зависимостей — т
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -24,7 +23,6 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from connectors.search_client import fetch_listing
 from core.config_resolver import resolve_config
 from core.daypart import split_by_control
 from core.reconcile import reconcile
@@ -66,34 +64,6 @@ def run_revenue_cycle(ctx: WorkerContext):
     ctx.store.put_product_names({ms: r.name for ms, r in revenue.items()}, ts=ts)
     log.info("Revenue-цикл: обновлено SKU в кэше = %s", len(revenue))
     return revenue
-
-
-# ---- тик трекера позиций (органика, HTTP) ----------------------------------
-
-def run_position_tick(store, positions_cfg, now_fn=lambda: datetime.now(ALMATY),
-                      search_fetch=fetch_listing) -> int:
-    """Снимает позицию нашего товара по каждому (keyword × city) и пишет снапшот.
-    Падение по одной паре логируется и пропускается — тик не роняем."""
-    ts = int(now_fn().timestamp())
-    written = 0
-    for item in positions_cfg.track:
-        for city in positions_cfg.cities:
-            try:
-                lst = search_fetch(item.keyword, city.city_id, city.zone,
-                                   item.product_id, positions_cfg.max_depth)
-                listing_json = json.dumps(
-                    [{"rank": c.rank, "product_id": c.product_id, "title": c.title,
-                      "price": c.price, "brand": c.brand, "is_ad": c.is_ad}
-                     for c in lst.cards], ensure_ascii=False)
-                store.put_position_snapshot(
-                    ts, item.keyword, city.name, item.product_id,
-                    lst.our_rank, lst.total, listing_json)
-                written += 1
-            except Exception as e:  # noqa: BLE001 — одна пара не должна ронять тик
-                log.warning("Позиции: пара %s/%s упала: %s",
-                            item.keyword, city.name, e)
-    log.info("Позиции-тик: записано снапшотов = %s", written)
-    return written
 
 
 # ---- ставочный тик ---------------------------------------------------------
@@ -301,10 +271,6 @@ def main():  # pragma: no cover
     merchant = MerchantClient(auth_token=os.environ["KASPI_MERCHANT_TOKEN"])
     revenue_collector = RevenueCollector(merchant)
 
-    from core.positions_config import load_positions_config
-    pos_cfg = load_positions_config(
-        os.environ.get("POSITIONS_CONFIG", "config/positions.yaml"))
-
     def build_ctx() -> WorkerContext:
         # Читаем cfg каждый цикл (hot-reload rules.yaml)
         cfg = load_cfg_safe(rules_path, cfg_holder["cfg"])
@@ -342,17 +308,6 @@ def main():  # pragma: no cover
                   id="fast")
     sched.add_job(lambda: run_cycle(build_ctx(), "slow"), "cron",
                   hour="9,12,15,18,21", id="slow")
-    # Позиционный трекер шлём отдельным флагом: с IP датацентра Kaspi режет
-    # веб-каталог (429), поэтому на VPS job держим выключенным, пока не подключим
-    # KZ-резидентный прокси (KASPI_SEARCH_PROXY). На резидентном IP — включён.
-    positions_enabled = os.environ.get("POSITIONS_ENABLED", "1") != "0"
-    if positions_enabled:
-        sched.add_job(
-            lambda: run_position_tick(store, pos_cfg),
-            "interval", minutes=15, id="positions", max_instances=1,
-            coalesce=True, next_run_time=datetime.now(ALMATY))
-    else:
-        log.info("Позиционный job ВЫКЛЮЧЕН (POSITIONS_ENABLED=0)")
 
     def analyst_job():
         # Дневной разбор для владельца (advisory, не в петле решений).
@@ -369,10 +324,9 @@ def main():  # pragma: no cover
         log.info("LLM-аналитик ВЫКЛЮЧЕН (ANALYST_ENABLED=0)")
 
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/9,12,15,18,21%s%s (Алматы)",
+             "fast/5м, slow/9,12,15,18,21%s (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные",
-             ", analyst/22:00" if analyst_enabled else " (analyst ВЫКЛ)",
-             ", positions/15м" if positions_enabled else " (positions ВЫКЛ)")
+             ", analyst/22:00" if analyst_enabled else " (analyst ВЫКЛ)")
     sched.start()
 
 
