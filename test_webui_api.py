@@ -350,6 +350,97 @@ def test_series_carries_decision_reasons():
     print("✓ api: маркеры решений несут причину")
 
 
+def test_put_product_settings_saves_and_clears_overrides():
+    """null означает «наследовать» — оверрайд должен удаляться, а не
+    записываться нулём. Записанный ноль означал бы «потолок ставки = 0»."""
+    c, _, db = _logged_in()
+    r = c.put("/api/products/c1/s1/settings",
+              json={"values": {"bid_ceiling": 150}})
+    assert r.status_code == 200, r.text
+    assert c.get("/api/products/c1/s1").json()["values"]["bid_ceiling"] == 150
+
+    r = c.put("/api/products/c1/s1/settings",
+              json={"values": {"bid_ceiling": None}})
+    assert r.status_code == 200, r.text
+    body = c.get("/api/products/c1/s1").json()
+    assert "bid_ceiling" not in body["owned"], body["owned"]
+    assert body["values"]["bid_ceiling"] == RulesConfig().bid_ceiling, body["values"]
+    print("✓ api: null в настройках товара возвращает наследование")
+
+
+def test_put_product_settings_rejects_min_bid_above_ceiling():
+    """Минимальная ставка выше потолка сделала бы решения биддера
+    противоречивыми — ловим на входе."""
+    c, _, _ = _logged_in()
+    r = c.put("/api/products/c1/s1/settings",
+              json={"values": {"min_bid": 200, "bid_ceiling": 100}})
+    assert r.status_code == 400, r.text
+    assert r.json()["errors"], r.json()
+    print("✓ api: min_bid выше потолка отвергается")
+
+
+def test_put_product_settings_rejects_unknown_field():
+    """Белый список полей: панель не должна уметь писать в конфиг что угодно."""
+    c, _, _ = _logged_in()
+    r = c.put("/api/products/c1/s1/settings",
+              json={"values": {"нет_такого_поля": 1}})
+    assert r.status_code == 400, r.text
+    print("✓ api: неизвестное поле настроек отвергается")
+
+
+def test_put_control_persists_and_validates_window():
+    c, _, _ = _logged_in()
+    r = c.put("/api/products/c1/s1/control",
+              json={"enabled": False, "window_start": 9, "window_end": 23,
+                    "days_mask": 127})
+    assert r.status_code == 200, r.text
+    ctl = c.get("/api/products/c1/s1").json()["control"]
+    assert ctl["enabled"] is False and ctl["window_start"] == 9, ctl
+
+    r = c.put("/api/products/c1/s1/control",
+              json={"enabled": True, "window_start": 20, "window_end": 5,
+                    "days_mask": 127})
+    assert r.status_code == 400, r.text
+    print("✓ api: расписание сохраняется, окно наизнанку отвергается")
+
+
+def test_global_settings_roundtrip_and_audit():
+    c, rules, db = _logged_in()
+    before = c.get("/api/settings").json()["settings"]
+    assert "bid_ceiling" in before, before
+
+    r = c.put("/api/settings", json={"settings": {**before, "bid_ceiling": 321}})
+    assert r.status_code == 200, r.text
+    assert c.get("/api/settings").json()["settings"]["bid_ceiling"] == 321
+
+    audit = c.get("/api/audit").json()["audit"]
+    assert any(a["field"] == "bid_ceiling" for a in audit), audit
+    print("✓ api: глобальные настройки сохраняются и попадают в аудит")
+
+
+def test_dry_run_toggle_does_not_leak_into_settings_save():
+    """dry_run — рубильник реальных денег. Он меняется ТОЛЬКО своим
+    эндпоинтом, обычное сохранение настроек его трогать не должно."""
+    c, _, _ = _logged_in()
+    assert c.post("/api/dry-run", json={"dry_run": False}).status_code == 200
+    assert c.get("/api/settings").json()["settings"]["dry_run"] is False
+
+    s = c.get("/api/settings").json()["settings"]
+    c.put("/api/settings", json={"settings": {**s, "dry_run": True,
+                                              "bid_ceiling": 99}})
+    assert c.get("/api/settings").json()["settings"]["dry_run"] is False
+    print("✓ api: dry_run не меняется через сохранение настроек")
+
+
+def test_write_endpoints_require_login():
+    c, _, _ = _client()
+    assert c.put("/api/products/c1/s1/settings",
+                 json={"values": {}}, follow_redirects=False).status_code == 401
+    assert c.post("/api/dry-run", json={"dry_run": True},
+                  follow_redirects=False).status_code == 401
+    print("✓ api: запись требует входа")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -370,5 +461,12 @@ if __name__ == "__main__":
     test_series_separates_tick_scale_from_day_scale()
     test_series_corridor_reflects_effective_config()
     test_series_carries_decision_reasons()
+    test_put_product_settings_saves_and_clears_overrides()
+    test_put_product_settings_rejects_min_bid_above_ceiling()
+    test_put_product_settings_rejects_unknown_field()
+    test_put_control_persists_and_validates_window()
+    test_global_settings_roundtrip_and_audit()
+    test_dry_run_toggle_does_not_leak_into_settings_save()
+    test_write_endpoints_require_login()
     print("-" * 60)
     print("✓ Все проверки API прошли")
