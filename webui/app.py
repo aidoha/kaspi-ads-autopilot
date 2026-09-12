@@ -166,13 +166,19 @@ def create_app() -> FastAPI:
     app.include_router(api_auth.build_router(api_ctx))
 
     from fastapi.responses import JSONResponse
-    from fastapi.exceptions import HTTPException as FastAPIHTTPException
+    from starlette.exceptions import HTTPException as StarletteHTTPException
 
-    @app.exception_handler(FastAPIHTTPException)
-    async def _api_error(request: Request, exc: FastAPIHTTPException):
-        """Ошибки /api/* всегда в одном виде: {"errors": [...]}. Jinja-роуты
-        сохраняют штатное поведение FastAPI — их ответы читает человек, а не
-        фронт."""
+    @app.exception_handler(StarletteHTTPException)
+    async def _api_error(request: Request, exc: StarletteHTTPException):
+        """Ошибки /api/* всегда в одном виде: {"errors": [...]}.
+
+        Регистрируемся на класс Starlette, а не на fastapi.HTTPException:
+        маршрутизационные 404 и 405 поднимает сам Starlette своим базовым
+        классом, и обработчик на подклассе их не поймал бы. Тогда опечатка в
+        пути отдавала бы фронту другую форму ответа, чем все прочие ошибки.
+
+        Jinja-роуты сохраняют штатное поведение — их ответы читает человек
+        в браузере, а не fetch."""
         if not request.url.path.startswith("/api/"):
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         detail = exc.detail

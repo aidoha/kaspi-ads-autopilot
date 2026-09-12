@@ -77,6 +77,22 @@ def test_api_logout_clears_session():
     print("✓ api: выход сбрасывает сессию")
 
 
+def test_unknown_api_path_uses_the_same_error_shape():
+    """Фронт разбирает ответы /api/* по одной форме. Опечатка в пути не
+    должна отдавать другую — иначе ошибка всплывёт как сбой разбора, а не
+    как понятное «нет такого эндпоинта»."""
+    c, _, _ = _logged_in()
+    r = c.get("/api/нет-такого-эндпоинта")
+    assert r.status_code == 404, r.text
+    assert r.json()["errors"], r.json()
+
+    # Jinja-роуты не затронуты: их 404 читает человек, а не fetch.
+    r = c.get("/нет-такой-страницы")
+    assert r.status_code == 404, r.text
+    assert "errors" not in r.json(), r.json()
+    print("✓ api: неизвестный путь внутри /api отдаёт ту же форму ошибки")
+
+
 def test_jinja_panel_still_works_alongside_api():
     """API добавляется РЯДОМ со старой панелью, а не вместо неё. Пока не
     готов React, Jinja — единственный работающий интерфейс."""
@@ -94,6 +110,7 @@ if __name__ == "__main__":
     test_api_login_sets_session_and_me_returns_user()
     test_api_login_rejects_wrong_password()
     test_api_logout_clears_session()
+    test_unknown_api_path_uses_the_same_error_shape()
     test_jinja_panel_still_works_alongside_api()
     print("-" * 60)
     print("✓ Все проверки API прошли")
