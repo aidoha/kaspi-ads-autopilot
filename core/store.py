@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 
 from connectors.marketing_client import CampaignProduct
 from core.daypart import ProductControl
@@ -585,12 +586,80 @@ class Store:
         self._conn.commit()
 
     def get_metrics_series(self, sku: str, days: int) -> list[dict]:
-        """Последние `days` дней по товару, по возрастанию дня — как ось X."""
+        """Ряд подневных метрик товара для графика: по ОДНОЙ точке на день,
+        по возрастанию дня.
+
+        Свёртка обязательна, а не косметика. Ключ metrics_daily —
+        (day, campaign_id, sku), и у товара из двух кампаний на день приходится
+        две строки. Расход и счётчики в них РАЗНЫЕ (это факты кампании), а
+        revenue/tacos/roas ОДИНАКОВЫЕ — выручка приходит из Shop API по
+        merchant_sku и к кампаниям не привязана. Поэтому:
+          • cost, gmv, views, clicks, carts, transactions — суммируем;
+          • revenue — берём один раз (MAX, все значения равны);
+          • tacos/roas/ctr/cr — ПЕРЕСЧИТЫВАЕМ из свёрнутых сумм, а не усредняем
+            готовые: среднее двух отношений с разными знаменателями неверно.
+        Наивный SELECT здесь задвоил бы выручку и показал ROAS вдвое лучше.
+        """
         rows = self._conn.execute(
-            "SELECT * FROM ("
-            "  SELECT * FROM metrics_daily WHERE sku=? ORDER BY day DESC LIMIT ?"
-            ") ORDER BY day ASC",
-            (sku, days),
+            """SELECT day,
+                      SUM(cost)         AS cost,
+                      SUM(gmv)          AS gmv,
+                      SUM(views)        AS views,
+                      SUM(clicks)       AS clicks,
+                      SUM(carts)        AS carts,
+                      SUM(transactions) AS transactions,
+                      MAX(revenue)      AS revenue,
+                      COUNT(revenue)    AS revenue_known
+               FROM metrics_daily
+               WHERE sku=? AND day IN (
+                   SELECT day FROM metrics_daily WHERE sku=?
+                   GROUP BY day ORDER BY day DESC LIMIT ?)
+               GROUP BY day
+               ORDER BY day ASC""",
+            (sku, sku, days),
+        ).fetchall()
+
+        out: list[dict] = []
+        for r in rows:
+            cost, gmv = r["cost"], r["gmv"]
+            clicks, views, carts = r["clicks"], r["views"], r["carts"]
+            # COUNT(revenue) не считает NULL: ноль означает «за этот день
+            # выручку не собирали» — тогда она неизвестна, а не равна нулю.
+            revenue = r["revenue"] if r["revenue_known"] else None
+            out.append({
+                "day": r["day"],
+                "cost": cost, "gmv": gmv, "views": views, "clicks": clicks,
+                "carts": carts, "transactions": r["transactions"],
+                "revenue": revenue,
+                "ctr": (clicks / views) if views else None,
+                "cr": (carts / clicks) if clicks else None,
+                "tacos": (cost / revenue) if revenue else None,
+                "roas": None if (not cost or revenue is None) else (revenue / cost),
+                "roas_gmv": (gmv / cost) if cost else None,
+            })
+        return out
+
+    def get_snapshot_series(self, sku: str, days: int) -> list[dict]:
+        """Ставка и цена клика ПО ТИКАМ за последние `days` суток.
+        Отдельно от get_metrics_series: у ставки внутридневное разрешение —
+        именно на нём видно, как биддер её двигал."""
+        since = int(time.time()) - days * 86400
+        rows = self._conn.execute(
+            "SELECT ts, bid, avg_cpc FROM products_snapshot "
+            "WHERE sku=? AND ts>=? ORDER BY ts ASC",
+            (sku, since),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_decision_markers(self, sku: str, days: int) -> list[dict]:
+        """Правки биддера для маркеров на графике ставки. Причина едет вместе
+        с точкой: без неё маркер показывает ЧТО произошло, но не ПОЧЕМУ, а
+        ценность графика именно во втором."""
+        since = int(time.time()) - days * 86400
+        rows = self._conn.execute(
+            "SELECT ts, action, old_bid, new_bid, reason FROM decisions_log "
+            "WHERE sku=? AND ts>=? ORDER BY ts ASC",
+            (sku, since),
         ).fetchall()
         return [dict(r) for r in rows]
 

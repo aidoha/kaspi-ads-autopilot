@@ -427,15 +427,60 @@ def test_metrics_daily_keeps_rows_of_both_campaigns():
     print("✓ metrics_daily хранит строки обеих кампаний товара")
 
 
-def test_metrics_series_ascending_and_limited():
-    """Ряд для графика: свежие N дней, по возрастанию — как рисует ось X."""
+def test_metrics_series_folds_two_campaigns_into_one_day():
+    """Товар в двух кампаниях даёт две строки на день с ОДИНАКОВОЙ выручкой.
+    Ряд для графика обязан свернуть их в одну точку: расход и счётчики —
+    суммой, выручка — один раз, производные — пересчётом из свёрнутых сумм.
+    Наивный SELECT задвоил бы выручку и показал бы ROAS вдвое лучше реального."""
+    s = new_store()
+    common = dict(day="2026-09-12", sku="s1", merchant_sku="m1",
+                  transactions=0, ts=1)
+    s.upsert_metrics_daily(campaign_id="c1", cost=100, gmv=400, views=1000,
+                           clicks=50, carts=2, ctr=0.05, cr=0.04,
+                           revenue=1000, **common)
+    s.upsert_metrics_daily(campaign_id="c2", cost=300, gmv=600, views=2000,
+                           clicks=70, carts=3, ctr=0.035, cr=0.043,
+                           revenue=1000, **common)
+
+    series = s.get_metrics_series("s1", days=7)
+    assert len(series) == 1, series
+    p = series[0]
+    assert p["cost"] == 400, p            # 100 + 300
+    assert p["clicks"] == 120, p          # 50 + 70
+    assert p["views"] == 3000, p
+    assert p["carts"] == 5, p
+    assert p["gmv"] == 1000, p
+    assert p["revenue"] == 1000, p        # НЕ 2000 — величина уровня товара
+    assert abs(p["tacos"] - 400 / 1000) < 1e-9, p
+    assert abs(p["roas"] - 1000 / 400) < 1e-9, p
+    assert abs(p["ctr"] - 120 / 3000) < 1e-9, p   # пересчёт, не среднее
+    assert abs(p["cr"] - 5 / 120) < 1e-9, p
+    print("✓ ряд metrics сворачивает кампании без задвоения выручки")
+
+
+def test_metrics_series_keeps_unknown_revenue_unknown():
+    """Если выручка за день не собрана (None), производные остаются None,
+    а не превращаются в ноль."""
+    s = new_store()
+    s.upsert_metrics_daily(day="2026-09-12", campaign_id="c1", sku="s1",
+                           merchant_sku="m1", cost=500, gmv=0, views=10,
+                           clicks=5, carts=0, transactions=0, ctr=0.5,
+                           cr=0.0, revenue=None, ts=1)
+    p = s.get_metrics_series("s1", days=7)[0]
+    assert p["revenue"] is None, p
+    assert p["tacos"] is None and p["roas"] is None, p
+    assert p["roas_gmv"] == 0.0, p        # расход есть, gmv ноль — это 0, не дырка
+    print("✓ ряд metrics не выдумывает выручку, которой нет")
+
+
+def test_metrics_series_ascending_and_limited_after_fold():
+    """Свёртка не должна поломать сортировку и лимит по дням."""
     s = new_store()
     for n in range(1, 6):
         s.upsert_metrics_daily(
             day=f"2026-09-0{n}", campaign_id="c1", sku="s1", merchant_sku="m1",
             cost=n * 100, gmv=0, views=0, clicks=0, carts=0, transactions=0,
             ctr=0.0, cr=0.0, revenue=None, ts=n)
-    # чужой товар не должен попасть в ряд
     s.upsert_metrics_daily(
         day="2026-09-03", campaign_id="c1", sku="s2", merchant_sku="m2",
         cost=999, gmv=0, views=0, clicks=0, carts=0, transactions=0,
@@ -444,7 +489,50 @@ def test_metrics_series_ascending_and_limited():
     series = s.get_metrics_series("s1", days=3)
     assert [r["day"] for r in series] == ["2026-09-03", "2026-09-04", "2026-09-05"], series
     assert [r["cost"] for r in series] == [300, 400, 500], series
-    print("✓ ряд metrics_daily отсортирован и ограничен по товару")
+    print("✓ ряд metrics отсортирован, ограничен и не ловит чужой товар")
+
+
+def test_snapshot_series_returns_bid_and_cpc_by_tick():
+    """График ставки рисуется по тикам, а не по дням — свой ряд из снапшотов."""
+    import time as time_module
+    s = new_store()
+    now = int(time_module.time())
+    for i, (bid, cpc) in enumerate([(32, 23.0), (34, 24.1), (36, 25.6)]):
+        s.save_products_snapshot(
+            [cp(sku="s1", merchant_sku="m1", bid=bid, avg_cpc=cpc)],
+            ts=now - 30*86400 + i * 3600, campaign_id="c1")
+    s.save_products_snapshot(
+        [cp(sku="s2", merchant_sku="m2", bid=99, avg_cpc=99)],
+        ts=now - 30*86400, campaign_id="c1")
+
+    series = s.get_snapshot_series("s1", days=30)
+    assert [p["bid"] for p in series] == [32, 34, 36], series
+    assert [p["avg_cpc"] for p in series] == [23.0, 24.1, 25.6], series
+    assert series[0]["ts"] < series[-1]["ts"], series
+    print("✓ ряд снапшотов отдаёт ставку и CPC по тикам, по возрастанию")
+
+
+def test_decision_markers_carry_reason():
+    """Маркеры на графике ставки должны нести причину — ради неё график и нужен."""
+    import time as time_module
+    s = new_store()
+    now = int(time_module.time())
+    ts = now - 10*86400  # 10 дней назад, чтобы попасть в окно days=30
+    s.log_decision(dec(sku="s1", action="raise", old_bid=32, new_bid=34,
+                       reason="cart-rate выше цели"),
+                   ts=ts, day="2026-09-12", applied=True, campaign_id="c1")
+    s.log_decision(dec(sku="s1", action="hold", old_bid=34, new_bid=34,
+                       reason="лимит правок исчерпан"),
+                   ts=ts + 60, day="2026-09-12", applied=False, campaign_id="c1")
+    s.log_decision(dec(sku="s2", action="lower", old_bid=10, new_bid=8,
+                       reason="чужой товар"),
+                   ts=ts, day="2026-09-12", applied=True, campaign_id="c1")
+
+    marks = s.get_decision_markers("s1", days=30)
+    assert [m["action"] for m in marks] == ["raise", "hold"], marks
+    assert marks[0]["reason"] == "cart-rate выше цели", marks[0]
+    assert marks[0]["old_bid"] == 32 and marks[0]["new_bid"] == 34, marks[0]
+    print("✓ маркеры решений несят действие, ставки и причину")
 
 
 def test_ai_insight_roundtrip_and_overwrite():
@@ -507,7 +595,11 @@ if __name__ == "__main__":
     test_metrics_daily_upsert_overwrites_same_day()
     test_metrics_daily_null_only_when_denominator_is_zero()
     test_metrics_daily_keeps_rows_of_both_campaigns()
-    test_metrics_series_ascending_and_limited()
+    test_metrics_series_folds_two_campaigns_into_one_day()
+    test_metrics_series_keeps_unknown_revenue_unknown()
+    test_metrics_series_ascending_and_limited_after_fold()
+    test_snapshot_series_returns_bid_and_cpc_by_tick()
+    test_decision_markers_carry_reason()
     test_ai_insight_roundtrip_and_overwrite()
     test_count_ai_calls_counts_forced_recomputes()
     print("-" * 60)
