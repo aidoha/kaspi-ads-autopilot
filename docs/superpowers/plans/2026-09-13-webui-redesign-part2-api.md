@@ -812,7 +812,7 @@ Kaspi; недоступный кабинет отдаёт список без б
 **Interfaces:**
 - Consumes: Task 2 и Task 3; `Store.get_campaign_skus`, `get_latest_snapshot`, `get_sku_name_map`, `all_product_controls`, `get_metrics_series`, `get_decisions_for_sku_day`, `get_overrides`; `core.config_resolver.resolve_config`, `OVERRIDABLE_FIELDS`; `core.rules.load_rules_config`; `core.daypart.ProductControl`.
 - Produces:
-  - `GET /api/products?campaign=&days=` → `{"products": [...]}`, элемент: `sku`, `merchant_sku`, `campaign_id`, `name`, `bid`, `cost`, `revenue`, `tacos`, `roas`, `ctr`, `cr`, `clicks`, `carts`, `status`, `enabled`, `bid_spark` (список чисел).
+  - `GET /api/products?campaign=&days=` → `{"products": [...]}` — **одна строка на ТОВАР, а не на пару товар-кампания**: экран называется «Товары», кампания там фильтр, а не измерение списка. Элемент: `sku`, `merchant_sku`, `campaign_ids` (список кампаний, где товар ведётся), `name`, `bid`, `cost`, `revenue`, `tacos`, `roas`, `ctr`, `cr`, `clicks`, `carts`, `status`, `enabled`, `bid_spark` (список чисел).
   - `GET /api/products/{campaign_id}/{sku}` → `{"sku", "name", "campaign_id", "control": {...}, "values": {...}, "owned": [...], "decisions": [...]}`.
 
 - [ ] **Step 1: Написать падающие тесты**
