@@ -141,8 +141,13 @@ def create_app() -> FastAPI:
     # https_only: панель торчит в интернет (за Caddy) — без Secure-флага случайный
     # http:// заход слил бы подписанную куку сессии ДО редиректа на https. max_age
     # короче дефолтных 14 дней Starlette — деньги, не забытый логин на форуме.
+    # same_site="strict": и SPA, и Jinja-панель живут на том же origin, что API,
+    # поэтому кросс-сайтовые запросы с кукой панели не нужны вообще. Строгий
+    # режим закрывает CSRF без отдельного токена — для панели, которая тратит
+    # рекламный бюджет, это дешёвая и правильная страховка.
     app.add_middleware(SessionMiddleware, secret_key=secret,
-                       https_only=True, max_age=60 * 60 * 8)
+                       https_only=True, same_site="strict",
+                       max_age=60 * 60 * 8)
 
     app.mount("/static", StaticFiles(directory=os.path.join(_HERE, "static")), name="static")
     templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
@@ -152,6 +157,28 @@ def create_app() -> FastAPI:
     db_path = os.environ.get("DB_PATH", "db/autopilot.db")
     username = os.environ.get("UI_USERNAME", "admin")
     pw_hash = os.environ.get("UI_PASSWORD_HASH", "")
+
+    from webui.api.deps import ApiContext
+    from webui.api import auth as api_auth
+
+    api_ctx = ApiContext(rules_path=rules_path, db_path=db_path,
+                         username=username, pw_hash=pw_hash)
+    app.include_router(api_auth.build_router(api_ctx))
+
+    from fastapi.responses import JSONResponse
+    from fastapi.exceptions import HTTPException as FastAPIHTTPException
+
+    @app.exception_handler(FastAPIHTTPException)
+    async def _api_error(request: Request, exc: FastAPIHTTPException):
+        """Ошибки /api/* всегда в одном виде: {"errors": [...]}. Jinja-роуты
+        сохраняют штатное поведение FastAPI — их ответы читает человек, а не
+        фронт."""
+        if not request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        detail = exc.detail
+        if isinstance(detail, dict) and "errors" in detail:
+            return JSONResponse(detail, status_code=exc.status_code)
+        return JSONResponse({"errors": [str(detail)]}, status_code=exc.status_code)
 
     def user(request: Request):
         return request.session.get("user")
