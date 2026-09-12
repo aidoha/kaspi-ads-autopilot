@@ -104,9 +104,10 @@ def run_daily_metrics_cycle(ctx: WorkerContext, days_back: int = 1) -> int:
         # дёргаем его один раз на день, а не на каждую кампанию.
         try:
             revenue = ctx.revenue_collector.collect_for_day(day)
+            revenue_ok = True
         except Exception as e:  # noqa: BLE001
             log.error("Выручка за %s недоступна, метрики без неё: %s", day, e)
-            revenue = {}
+            revenue, revenue_ok = {}, False
 
         for c in campaigns:
             try:
@@ -117,12 +118,17 @@ def run_daily_metrics_cycle(ctx: WorkerContext, days_back: int = 1) -> int:
 
             for p in products:
                 r = revenue.get(p.merchant_sku)
+                # Различаем «Shop API не отвечал» (ROAS неизвестен → None) и
+                # «ответил, заказов по товару нет» (честный ROAS 0.0). Склеить
+                # их значило бы выбросить главный сигнал панели: расход есть,
+                # продаж нет.
+                rev = (r.revenue if r else 0.0) if revenue_ok else None
                 ctx.store.upsert_metrics_daily(
                     day=day, campaign_id=c.id, sku=p.sku,
                     merchant_sku=p.merchant_sku, cost=p.cost, gmv=p.gmv,
                     views=p.views, clicks=p.clicks, carts=p.carts,
                     transactions=p.transactions, ctr=p.ctr, cr=p.cr,
-                    revenue=r.revenue if r else None, ts=ts)
+                    revenue=rev, ts=ts)
                 written += 1
 
     log.info("Подневные метрики: дней=%s, кампаний=%s, строк=%s",

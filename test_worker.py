@@ -484,6 +484,47 @@ def test_daily_metrics_isolates_failing_campaign():
     print("✓ падение одной кампании не роняет джоб метрик")
 
 
+def test_daily_metrics_distinguishes_no_sales_from_no_data():
+    """Расход без продаж — это ROAS 0.0, а не дырка. Дырка бывает только
+    когда Shop API не ответил."""
+    from worker import run_daily_metrics_cycle
+
+    class FakeMarketing:
+        def list_active_campaigns(self, start_date, end_date):
+            return [Campaign(id="c1", name="A", state="Enabled")]
+
+        def get_campaign_products(self, campaign_id, start_date, end_date):
+            return [cp(sku="s1", merchant_sku="m1", cost=500)]
+
+    class EmptyRevenue:
+        def collect_for_day(self, day):
+            return {}                      # опросили, заказов нет
+
+    class BrokenRevenue:
+        def collect_for_day(self, day):
+            raise RuntimeError("Shop API лёг")
+
+    now = lambda: datetime(2026, 9, 12, 14, 0, tzinfo=ALMATY)
+
+    store = Store(os.path.join(tempfile.mkdtemp(), "a.db"))
+    run_daily_metrics_cycle(
+        WorkerContext(marketing=FakeMarketing(), store=store, cfg=RulesConfig(),
+                      revenue_collector=EmptyRevenue(), now_fn=now), days_back=0)
+    row = store.get_metrics_for_day("2026-09-12")[0]
+    assert row["revenue"] == 0.0, row
+    assert row["roas"] == 0.0, row["roas"]
+    assert row["tacos"] is None, row["tacos"]
+
+    store2 = Store(os.path.join(tempfile.mkdtemp(), "b.db"))
+    run_daily_metrics_cycle(
+        WorkerContext(marketing=FakeMarketing(), store=store2, cfg=RulesConfig(),
+                      revenue_collector=BrokenRevenue(), now_fn=now), days_back=0)
+    row = store2.get_metrics_for_day("2026-09-12")[0]
+    assert row["revenue"] is None, row
+    assert row["roas"] is None, row["roas"]
+    print("✓ «продаж нет» и «данных нет» не склеены")
+
+
 def test_daily_metrics_survives_unavailable_campaign_list():
     """Список кампаний недоступен — цикл пропускаем, как это делает run_cycle."""
     from worker import run_daily_metrics_cycle
@@ -525,6 +566,7 @@ if __name__ == "__main__":
     test_daily_metrics_asks_marketing_per_day_and_writes_rows()
     test_daily_metrics_fetches_revenue_once_per_day()
     test_daily_metrics_isolates_failing_campaign()
+    test_daily_metrics_distinguishes_no_sales_from_no_data()
     test_daily_metrics_survives_unavailable_campaign_list()
     print("-" * 60)
     print("✓ Все проверки worker прошли")
