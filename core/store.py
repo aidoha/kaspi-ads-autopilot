@@ -42,7 +42,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS products_snapshot (
                 ts INTEGER, sku TEXT, merchant_sku TEXT, bid REAL, avg_cpc REAL,
                 score REAL, cost REAL, cost_today REAL, clicks INTEGER, carts INTEGER,
-                product_state TEXT, price REAL, campaign_id TEXT
+                product_state TEXT, price REAL, campaign_id TEXT,
+                views INTEGER, ctr REAL, cr REAL, crr REAL, gmv REAL,
+                transactions INTEGER, buy_box INTEGER
             );
             CREATE INDEX IF NOT EXISTS ix_snapshot_sku_ts ON products_snapshot(sku, ts);
 
@@ -117,12 +119,19 @@ class Store:
                 "ALTER TABLE decisions_log ADD COLUMN campaign_id TEXT")
         self._conn.commit()
 
-        # Миграция для products_snapshot: добавить campaign_id
+        # Миграция products_snapshot: campaign_id плюс поля обратной связи,
+        # которые кабинет отдавал всегда, а мы начали хранить только сейчас.
+        # У старых строк они останутся NULL — история метрик начинается с
+        # момента выката, задним числом её взять неоткуда.
         snap_cols = {r["name"] for r in
                      self._conn.execute("PRAGMA table_info(products_snapshot)")}
-        if "campaign_id" not in snap_cols:
-            self._conn.execute(
-                "ALTER TABLE products_snapshot ADD COLUMN campaign_id TEXT")
+        for col, decl in (("campaign_id", "TEXT"), ("views", "INTEGER"),
+                          ("ctr", "REAL"), ("cr", "REAL"), ("crr", "REAL"),
+                          ("gmv", "REAL"), ("transactions", "INTEGER"),
+                          ("buy_box", "INTEGER")):
+            if col not in snap_cols:
+                self._conn.execute(
+                    f"ALTER TABLE products_snapshot ADD COLUMN {col} {decl}")
         self._conn.commit()
 
     # ---- снапшоты товаров ---------------------------------------------------
@@ -132,11 +141,13 @@ class Store:
         self._conn.executemany(
             """INSERT INTO products_snapshot
                (ts, sku, merchant_sku, bid, avg_cpc, score, cost, cost_today,
-                clicks, carts, product_state, price, campaign_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                clicks, carts, product_state, price, campaign_id,
+                views, ctr, cr, crr, gmv, transactions, buy_box)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(ts, p.sku, p.merchant_sku, p.bid, p.avg_cpc, p.score, p.cost,
               p.cost_today, p.clicks, p.carts, p.product_state, p.price,
-              campaign_id) for p in products],
+              campaign_id, p.views, p.ctr, p.cr, p.crr, p.gmv,
+              p.transactions, int(p.buy_box)) for p in products],
         )
         self._conn.commit()
 

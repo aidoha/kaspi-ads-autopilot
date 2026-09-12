@@ -10,6 +10,7 @@ test_store.py — тест SQLite-персистенции воркера.
 """
 
 import os
+import sqlite3
 import tempfile
 
 from connectors.marketing_client import CampaignProduct
@@ -152,6 +153,49 @@ def test_migration_adds_campaign_id_to_old_db():
     st.log_decision(dec(), ts=1, day="2026-08-09", applied=False, campaign_id="X")
     assert st.get_decisions_for_day("2026-08-09")[0]["campaign_id"] == "X"
     print("✓ store: миграция добавляет campaign_id в старую БД")
+
+
+def test_snapshot_stores_feedback_metrics():
+    """Поля обратной связи из кабинета доезжают до БД, а не теряются."""
+    s = new_store()
+    p = cp(views=4118, ctr=0.034, cr=0.086, crr=0.058, gmv=89655,
+           transactions=12, buy_box=True)
+    s.save_products_snapshot([p], ts=1000, campaign_id="3032419")
+
+    row = s.get_latest_snapshot("166350900")
+    assert row["views"] == 4118, row
+    assert row["ctr"] == 0.034, row
+    assert row["cr"] == 0.086, row
+    assert row["crr"] == 0.058, row
+    assert row["gmv"] == 89655, row
+    assert row["transactions"] == 12, row
+    assert row["buy_box"] == 1, row
+    print("✓ снапшот хранит метрики обратной связи")
+
+
+def test_migration_adds_feedback_columns_to_old_db():
+    """Боевая БД со старой схемой доживает миграцию без потери строк."""
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "old.db")
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE products_snapshot (
+        ts INTEGER, sku TEXT, merchant_sku TEXT, bid REAL, avg_cpc REAL,
+        score REAL, cost REAL, cost_today REAL, clicks INTEGER, carts INTEGER,
+        product_state TEXT, price REAL)""")
+    conn.execute("INSERT INTO products_snapshot (ts, sku, bid) VALUES (1, 'old', 5)")
+    conn.commit()
+    conn.close()
+
+    s = Store(path)  # миграция происходит при открытии
+    cols = {r["name"] for r in
+            s._conn.execute("PRAGMA table_info(products_snapshot)")}
+    assert {"campaign_id", "views", "ctr", "cr", "crr", "gmv",
+            "transactions", "buy_box"} <= cols, cols
+
+    row = s._conn.execute(
+        "SELECT sku, bid FROM products_snapshot WHERE sku='old'").fetchone()
+    assert row["sku"] == "old" and row["bid"] == 5, dict(row)
+    print("✓ миграция старой БД добавляет колонки и не теряет строки")
 
 
 def test_settings_audit():
@@ -313,6 +357,8 @@ if __name__ == "__main__":
     test_get_decisions_for_day()
     test_log_decision_writes_campaign_id()
     test_migration_adds_campaign_id_to_old_db()
+    test_snapshot_stores_feedback_metrics()
+    test_migration_adds_feedback_columns_to_old_db()
     test_settings_audit()
     test_config_overrides_crud()
     test_snapshot_campaign_id_and_lists()
