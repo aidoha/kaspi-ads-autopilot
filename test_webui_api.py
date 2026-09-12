@@ -184,6 +184,86 @@ def test_campaigns_survive_unavailable_cabinet():
     print("✓ api: недоступный кабинет не роняет список кампаний")
 
 
+def _seed_snapshot(db, campaign_id, sku, bid, ts):
+    from connectors.marketing_client import CampaignProduct
+    p = CampaignProduct(
+        sku=sku, merchant_sku="m" + sku, campaign_product_id=1, bid=bid,
+        avg_cpc=bid * 0.7, score=7.0, buy_box=True, product_state="Active",
+        cost=0, cost_today=0, gmv=0, crr=0, cr=0, ctr=0, views=0,
+        clicks=0, carts=0, transactions=0, price=10000)
+    s = Store(db)
+    try:
+        s.save_products_snapshot([p], ts=ts, campaign_id=campaign_id)
+    finally:
+        s.close()
+
+
+def test_products_list_joins_metrics_and_bid():
+    c, _, db = _logged_in()
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo("Asia/Almaty")).date().isoformat()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+    _seed_metrics(db, day, [("c1", "s1", 1000, 10000, 0, 100, 8)])
+
+    r = c.get("/api/products?days=7")
+    assert r.status_code == 200, r.text
+    items = r.json()["products"]
+    assert len(items) == 1, items
+    p = items[0]
+    assert p["sku"] == "s1" and p["bid"] == 40, p
+    assert p["cost"] == 1000 and p["revenue"] == 10000, p
+    assert abs(p["tacos"] - 0.1) < 1e-9, p
+    assert p["enabled"] is True, p           # по умолчанию биддер ведёт товар
+    assert isinstance(p["bid_spark"], list), p
+    print("✓ api: список товаров сшивает ставку и метрики")
+
+
+def test_products_list_reports_disabled_product():
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+    s = Store(db)
+    try:
+        s.set_product_control("c1", "s1", enabled=False, window_start=0,
+                              window_end=24, days_mask=127, user="admin", ts=1)
+    finally:
+        s.close()
+
+    p = c.get("/api/products?days=7").json()["products"][0]
+    assert p["enabled"] is False, p
+    assert p["status"] == "выключен", p
+    print("✓ api: выключенный товар виден в списке как выключенный")
+
+
+def test_product_detail_returns_effective_config_and_owned_fields():
+    """Поля наследуются глобал → кампания → товар. Панель обязана показывать
+    и эффективное значение, и то, задано ли оно НА ЭТОМ уровне."""
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+    s = Store(db)
+    try:
+        s.set_override("sku", "s1", "bid_ceiling", "123", user="admin", ts=1)
+    finally:
+        s.close()
+
+    r = c.get("/api/products/c1/s1")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["values"]["bid_ceiling"] == 123, body["values"]
+    assert "bid_ceiling" in body["owned"], body["owned"]
+    assert "min_bid" not in body["owned"], body["owned"]
+    assert body["control"]["enabled"] is True, body["control"]
+    assert body["control"]["window_end"] == 24, body["control"]
+    print("✓ api: карточка товара отдаёт эффективный конфиг и свои поля")
+
+
+def test_product_detail_requires_login():
+    c, _, _ = _client()
+    assert c.get("/api/products/c1/s1", follow_redirects=False).status_code == 401
+    assert c.get("/api/products", follow_redirects=False).status_code == 401
+    print("✓ api: товары требуют входа")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -196,5 +276,9 @@ if __name__ == "__main__":
     test_overview_empty_db_returns_zeros_not_error()
     test_overview_requires_login()
     test_campaigns_survive_unavailable_cabinet()
+    test_products_list_joins_metrics_and_bid()
+    test_products_list_reports_disabled_product()
+    test_product_detail_returns_effective_config_and_owned_fields()
+    test_product_detail_requires_login()
     print("-" * 60)
     print("✓ Все проверки API прошли")

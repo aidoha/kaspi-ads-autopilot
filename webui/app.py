@@ -161,11 +161,13 @@ def create_app() -> FastAPI:
     from webui.api.deps import ApiContext
     from webui.api import auth as api_auth
     from webui.api import overview as api_overview
+    from webui.api import products as api_products
 
     api_ctx = ApiContext(rules_path=rules_path, db_path=db_path,
                          username=username, pw_hash=pw_hash)
     app.include_router(api_auth.build_router(api_ctx))
     app.include_router(api_overview.build_router(api_ctx, _get_campaign_budgets))
+    app.include_router(api_products.build_router(api_ctx))
 
     from fastapi.responses import JSONResponse
     from starlette.exceptions import HTTPException as StarletteHTTPException
