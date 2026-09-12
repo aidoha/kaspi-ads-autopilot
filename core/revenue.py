@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, time as dtime
+from datetime import datetime, timedelta, time as dtime, date
 from zoneinfo import ZoneInfo
 
 from connectors.merchant_client import MerchantClient, Order
@@ -48,6 +48,23 @@ def almaty_window_ms(window_days: int, now: datetime | None = None) -> tuple[int
     return start_ms, end_ms
 
 
+def almaty_day_ms(day: str) -> tuple[int, int]:
+    """(start_ms, end_ms) для КОНКРЕТНОЙ даты YYYY-MM-DD по Алматы.
+
+    Отдельная функция, а не частный случай almaty_window_ms: та считает
+    скользящее окно «N дней, включая сегодня, до сейчас», а подневным
+    метрикам нужны ровно одни закрытые сутки.
+
+    Верхняя граница — последняя миллисекунда суток, а не полночь следующих:
+    Kaspi отдаёт заказы по включающему диапазону, и заказ, созданный ровно
+    в 00:00:00.000, иначе попал бы в оба дня и задвоил выручку.
+    """
+    d = date.fromisoformat(day)
+    start = datetime.combine(d, dtime.min, tzinfo=ALMATY)
+    end = start + timedelta(days=1)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000) - 1
+
+
 @dataclass
 class SkuRevenue:
     merchant_sku: str
@@ -73,7 +90,16 @@ class RevenueCollector:
     def collect(self, window_days: int = 2, now: datetime | None = None) -> dict[str, SkuRevenue]:
         start_ms, end_ms = almaty_window_ms(window_days, now=now)
         log.info("Сбор выручки: окно %sд, [%s .. %s]", window_days, start_ms, end_ms)
+        return self._collect_range(start_ms, end_ms)
 
+    def collect_for_day(self, day: str) -> dict[str, SkuRevenue]:
+        """Выручка по merchantSku за один календарный день Алматы —
+        источник колонки revenue в metrics_daily."""
+        start_ms, end_ms = almaty_day_ms(day)
+        log.info("Сбор выручки за %s, [%s .. %s]", day, start_ms, end_ms)
+        return self._collect_range(start_ms, end_ms)
+
+    def _collect_range(self, start_ms: int, end_ms: int) -> dict[str, SkuRevenue]:
         result: dict[str, SkuRevenue] = defaultdict(lambda: SkuRevenue(merchant_sku=""))
 
         counted_orders = 0
