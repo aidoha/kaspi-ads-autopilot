@@ -125,8 +125,13 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
 
 `tacos`, `roas`, `roas_gmv` хранятся посчитанными, а не выводятся на лету:
 графики читают таблицу напрямую, и пересчёт при каждом рендере — лишняя работа.
-При `cost = 0` или `revenue = 0` соответствующее поле пишется `NULL`, а не 0 —
-дырка в графике честнее нуля.
+
+`NULL` пишем только там, где ноль в **знаменателе** — величина не определена:
+`tacos` при нулевой выручке, `roas` и `roas_gmv` при нулевом расходе. А вот
+расход без выручки даёт честный `roas = 0.0`, и прятать его в `NULL` нельзя:
+«потратили и не продали» — это сигнал, а не дырка в данных. Отдельно
+`revenue = NULL` означает «Shop API за этот день ещё не опрашивали» — тогда
+`roas` действительно неизвестен.
 
 ### 3. `ai_insights` — новая таблица
 
@@ -140,9 +145,15 @@ CREATE TABLE IF NOT EXISTS ai_insights (
     model      TEXT,
     tokens_in  INTEGER,
     tokens_out INTEGER,
+    calls      INTEGER DEFAULT 1,
     PRIMARY KEY (kind, scope_id, day)
 );
 ```
+
+`calls` инкрементится при каждой перезаписи строки. Без него лимит
+`AI_DAILY_LIMIT` протекал бы: `?force=1` перезаписывает строку того же дня, и
+принудительные пересчёты были бы для лимита бесплатными, хотя деньги за вызов
+уже заплачены.
 
 ## Новый воркер-джоб: подневные метрики
 
@@ -176,7 +187,10 @@ CREATE TABLE IF NOT EXISTS ai_insights (
 - `webui/templates/positions.html`, роут `/positions`
 - тесты `test_search_client.py`, `test_store_positions.py`,
   `test_worker_positions.py`, `test_positions_config.py`, `test_webui_positions.py`
-- переменная `KASPI_SEARCH_PROXY` из `config/.env.example`
+- переменная `POSITIONS_ENABLED` из документации выката
+
+`KASPI_SEARCH_PROXY` в `config/.env.example` нет — проверено; она живёт только
+в боевом `config/.env` на VPS, вычистить её там нужно руками.
 
 Таблицу удаляем через `DROP TABLE IF EXISTS` в `_init_schema` — накопленные
 снапшоты теряются. Это согласовано: с датацентрового IP Kaspi отдаёт 429, и
