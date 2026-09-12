@@ -347,6 +347,90 @@ def test_bid_parking_roundtrip():
     print("✓ store: bid_parking set/get/clear")
 
 
+def test_metrics_daily_computes_and_stores_ratios():
+    """Производные считаются при записи: графики читают таблицу как есть."""
+    s = new_store()
+    s.upsert_metrics_daily(
+        day="2026-09-12", campaign_id="2899523", sku="166350902",
+        merchant_sku="771930155", cost=2800, gmv=14000, views=7333,
+        clicks=88, carts=1, transactions=1, ctr=0.012, cr=0.011,
+        revenue=11429, ts=1000)
+
+    row = s.get_metrics_for_day("2026-09-12")[0]
+    assert abs(row["tacos"] - 2800 / 11429) < 1e-9, row["tacos"]
+    assert abs(row["roas"] - 11429 / 2800) < 1e-9, row["roas"]
+    assert abs(row["roas_gmv"] - 14000 / 2800) < 1e-9, row["roas_gmv"]
+    assert row["clicks"] == 88 and row["carts"] == 1, dict(row)
+    print("✓ metrics_daily считает tacos/roas/roas_gmv при записи")
+
+
+def test_metrics_daily_upsert_overwrites_same_day():
+    """Джоб гоняется раз в час и переписывает сегодня — дублей быть не должно."""
+    s = new_store()
+    common = dict(day="2026-09-12", campaign_id="c1", sku="s1",
+                  merchant_sku="m1", gmv=0, views=10, clicks=5, carts=0,
+                  transactions=0, ctr=0.5, cr=0.0)
+    s.upsert_metrics_daily(cost=100, revenue=1000, ts=1, **common)
+    s.upsert_metrics_daily(cost=250, revenue=1000, ts=2, **common)
+
+    rows = s.get_metrics_for_day("2026-09-12")
+    assert len(rows) == 1, rows
+    assert rows[0]["cost"] == 250 and rows[0]["ts"] == 2, dict(rows[0])
+    print("✓ metrics_daily перезаписывает строку того же дня")
+
+
+def test_metrics_daily_null_only_when_denominator_is_zero():
+    """Расход без выручки — это ROAS 0, а не дырка. TACoS при этом не определён."""
+    s = new_store()
+    s.upsert_metrics_daily(
+        day="2026-09-12", campaign_id="c1", sku="s1", merchant_sku="m1",
+        cost=500, gmv=0, views=10, clicks=2, carts=0, transactions=0,
+        ctr=0.2, cr=0.0, revenue=0, ts=1)
+    row = s.get_metrics_for_day("2026-09-12")[0]
+    assert row["tacos"] is None, row["tacos"]
+    assert row["roas"] == 0.0, row["roas"]
+    assert row["roas_gmv"] == 0.0, row["roas_gmv"]
+
+    # Выручка ещё не собрана (Shop API не ходил) — ROAS неизвестен, не ноль.
+    s.upsert_metrics_daily(
+        day="2026-09-13", campaign_id="c1", sku="s1", merchant_sku="m1",
+        cost=500, gmv=1000, views=10, clicks=2, carts=0, transactions=0,
+        ctr=0.2, cr=0.0, revenue=None, ts=1)
+    row = s.get_metrics_for_day("2026-09-13")[0]
+    assert row["roas"] is None, row["roas"]
+    assert row["roas_gmv"] == 2.0, row["roas_gmv"]
+
+    # Расхода нет — делить не на что.
+    s.upsert_metrics_daily(
+        day="2026-09-14", campaign_id="c1", sku="s1", merchant_sku="m1",
+        cost=0, gmv=0, views=0, clicks=0, carts=0, transactions=0,
+        ctr=0.0, cr=0.0, revenue=300, ts=1)
+    row = s.get_metrics_for_day("2026-09-14")[0]
+    assert row["roas"] is None and row["roas_gmv"] is None, dict(row)
+    assert row["tacos"] == 0.0, row["tacos"]
+    print("✓ NULL только там, где знаменатель ноль")
+
+
+def test_metrics_series_ascending_and_limited():
+    """Ряд для графика: свежие N дней, по возрастанию — как рисует ось X."""
+    s = new_store()
+    for n in range(1, 6):
+        s.upsert_metrics_daily(
+            day=f"2026-09-0{n}", campaign_id="c1", sku="s1", merchant_sku="m1",
+            cost=n * 100, gmv=0, views=0, clicks=0, carts=0, transactions=0,
+            ctr=0.0, cr=0.0, revenue=None, ts=n)
+    # чужой товар не должен попасть в ряд
+    s.upsert_metrics_daily(
+        day="2026-09-03", campaign_id="c1", sku="s2", merchant_sku="m2",
+        cost=999, gmv=0, views=0, clicks=0, carts=0, transactions=0,
+        ctr=0.0, cr=0.0, revenue=None, ts=9)
+
+    series = s.get_metrics_series("s1", days=3)
+    assert [r["day"] for r in series] == ["2026-09-03", "2026-09-04", "2026-09-05"], series
+    assert [r["cost"] for r in series] == [300, 400, 500], series
+    print("✓ ряд metrics_daily отсортирован и ограничен по товару")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -366,5 +450,9 @@ if __name__ == "__main__":
     test_product_control_default_when_absent()
     test_product_control_upsert_and_list()
     test_bid_parking_roundtrip()
+    test_metrics_daily_computes_and_stores_ratios()
+    test_metrics_daily_upsert_overwrites_same_day()
+    test_metrics_daily_null_only_when_denominator_is_zero()
+    test_metrics_series_ascending_and_limited()
     print("-" * 60)
     print("✓ Все проверки store прошли")

@@ -5,7 +5,8 @@ store.py — SQLite-персистенция воркера (stdlib sqlite3, б�
   products_snapshot — снимки товаров кампании (для prev avgCpc и истории);
   revenue_cache     — кэш выручки по merchant_sku (тяжёлый обход Shop API реже тика);
   decisions_log     — полный аудит каждого решения с причиной;
-  tacos_daily       — суточный TACoS по SKU (для аналитика/графиков).
+  tacos_daily       — суточный TACoS по SKU (для аналитика/графиков);
+  metrics_daily     — подневные метрики товара (CTR/CR/ROAS для графиков).
 
 Один коннект на процесс (check_same_thread=False) — воркер маленький, тик и
 цикл выручки не пишут одновременно в один SKU. Записи снапшота/решений — append.
@@ -106,6 +107,33 @@ class Store:
             CREATE TABLE IF NOT EXISTS product_names (
                 merchant_sku TEXT PRIMARY KEY, name TEXT, ts INTEGER
             );
+
+            -- Подневные метрики товара. Отдельно от tacos_daily: там лежит
+            -- значение СКОЛЬЗЯЩЕГО ОКНА на конец дня, а графику нужен именно
+            -- день. Наполняется отдельным джобом, который спрашивает кабинет
+            -- со StartDate = EndDate = день.
+            CREATE TABLE IF NOT EXISTS metrics_daily (
+                day          TEXT,
+                campaign_id  TEXT,
+                sku          TEXT,
+                merchant_sku TEXT,
+                cost         REAL,
+                gmv          REAL,
+                views        INTEGER,
+                clicks       INTEGER,
+                carts        INTEGER,
+                transactions INTEGER,
+                ctr          REAL,
+                cr           REAL,
+                revenue      REAL,
+                tacos        REAL,
+                roas         REAL,
+                roas_gmv     REAL,
+                ts           INTEGER,
+                PRIMARY KEY (day, sku)
+            );
+            CREATE INDEX IF NOT EXISTS ix_metrics_sku_day
+                ON metrics_daily(sku, day);
         """)
         # Позиционный трекер удалён: с датацентрового IP Kaspi отдавал 429, на
         # VPS таблица не наполнялась. Сносим явно, иначе она вечно висит в
@@ -474,4 +502,57 @@ class Store:
             (campaign_id, sku),
         )
         self._conn.commit()
+
+    # ---- подневные метрики -------------------------------------------------
+
+    def upsert_metrics_daily(self, day: str, campaign_id: str, sku: str,
+                             merchant_sku: str, cost: float, gmv: float,
+                             views: int, clicks: int, carts: int,
+                             transactions: int, ctr: float, cr: float,
+                             revenue: float | None, ts: int) -> None:
+        """Строка подневных метрик товара. Производные считаем ЗДЕСЬ и храним:
+        графики читают таблицу напрямую, пересчитывать их на каждый рендер
+        панели незачем.
+
+        NULL пишем только там, где ноль в ЗНАМЕНАТЕЛЕ — величина не определена.
+        Расход без выручки даёт ROAS 0.0, и это не дырка, а важный сигнал:
+        деньги потратили, продаж нет. revenue=None означает «Shop API за этот
+        день ещё не опрашивали» — тогда ROAS именно неизвестен."""
+        tacos = (cost / revenue) if revenue else None
+        roas = None if (not cost or revenue is None) else (revenue / cost)
+        roas_gmv = (gmv / cost) if cost else None
+        self._conn.execute(
+            """INSERT INTO metrics_daily
+               (day, campaign_id, sku, merchant_sku, cost, gmv, views, clicks,
+                carts, transactions, ctr, cr, revenue, tacos, roas, roas_gmv, ts)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(day, sku) DO UPDATE SET
+                 campaign_id=excluded.campaign_id,
+                 merchant_sku=excluded.merchant_sku,
+                 cost=excluded.cost, gmv=excluded.gmv, views=excluded.views,
+                 clicks=excluded.clicks, carts=excluded.carts,
+                 transactions=excluded.transactions, ctr=excluded.ctr,
+                 cr=excluded.cr, revenue=excluded.revenue,
+                 tacos=excluded.tacos, roas=excluded.roas,
+                 roas_gmv=excluded.roas_gmv, ts=excluded.ts""",
+            (day, campaign_id, sku, merchant_sku, cost, gmv, views, clicks,
+             carts, transactions, ctr, cr, revenue, tacos, roas, roas_gmv, ts),
+        )
+        self._conn.commit()
+
+    def get_metrics_series(self, sku: str, days: int) -> list[dict]:
+        """Последние `days` дней по товару, по возрастанию дня — как ось X."""
+        rows = self._conn.execute(
+            "SELECT * FROM ("
+            "  SELECT * FROM metrics_daily WHERE sku=? ORDER BY day DESC LIMIT ?"
+            ") ORDER BY day ASC",
+            (sku, days),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_metrics_for_day(self, day: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM metrics_daily WHERE day=? ORDER BY sku", (day,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
