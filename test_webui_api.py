@@ -105,6 +105,85 @@ def test_jinja_panel_still_works_alongside_api():
     print("✓ api: Jinja-панель продолжает работать параллельно")
 
 
+def _seed_metrics(db, day, rows):
+    """rows: список кортежей (campaign_id, sku, cost, revenue, gmv, clicks, carts)."""
+    s = Store(db)
+    try:
+        for cid, sku, cost, revenue, gmv, clicks, carts in rows:
+            s.upsert_metrics_daily(
+                day=day, campaign_id=cid, sku=sku, merchant_sku="m" + sku,
+                cost=cost, gmv=gmv, views=clicks * 20, clicks=clicks,
+                carts=carts, transactions=0, ctr=0.05, cr=0.04,
+                revenue=revenue, ts=1)
+    finally:
+        s.close()
+
+
+def test_overview_totals_sum_across_products():
+    c, _, db = _logged_in()
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo("Asia/Almaty")).date().isoformat()
+    _seed_metrics(db, day, [
+        ("c1", "s1", 1000, 10000, 12000, 100, 8),
+        ("c1", "s2", 500, 2000, 2500, 40, 2),
+    ])
+
+    r = c.get("/api/overview?days=7")
+    assert r.status_code == 200, r.text
+    t = r.json()["totals"]
+    assert t["cost"] == 1500, t
+    assert t["revenue"] == 12000, t
+    assert abs(t["tacos"] - 1500 / 12000) < 1e-9, t
+    assert abs(t["roas"] - 12000 / 1500) < 1e-9, t
+    assert t["clicks"] == 140 and t["carts"] == 10, t
+    print("✓ api: сводка суммирует расход и выручку по товарам")
+
+
+def test_overview_filters_by_campaign():
+    c, _, db = _logged_in()
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo("Asia/Almaty")).date().isoformat()
+    _seed_metrics(db, day, [
+        ("c1", "s1", 1000, 10000, 0, 100, 8),
+        ("c2", "s2", 500, 2000, 0, 40, 2),
+    ])
+
+    t = c.get("/api/overview?campaign=c1&days=7").json()["totals"]
+    assert t["cost"] == 1000 and t["revenue"] == 10000, t
+    print("✓ api: фильтр по кампании сужает сводку")
+
+
+def test_overview_empty_db_returns_zeros_not_error():
+    """Свежая установка не должна ронять панель 500-й."""
+    c, _, _ = _logged_in()
+    r = c.get("/api/overview?days=7")
+    assert r.status_code == 200, r.text
+    t = r.json()["totals"]
+    assert t["cost"] == 0 and t["revenue"] == 0, t
+    assert t["tacos"] is None and t["roas"] is None, t
+    print("✓ api: пустая БД даёт нули и None, а не 500")
+
+
+def test_overview_requires_login():
+    c, _, _ = _client()
+    assert c.get("/api/overview", follow_redirects=False).status_code == 401
+    print("✓ api: сводка требует входа")
+
+
+def test_campaigns_survive_unavailable_cabinet():
+    """Бюджеты живут в кабинете Kaspi. Он может быть недоступен — список
+    кампаний обязан отдаться без них, а не упасть."""
+    c, _, _ = _logged_in()
+    r = c.get("/api/campaigns")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert isinstance(body["campaigns"], list), body
+    assert body["budgets_available"] is False, body
+    print("✓ api: недоступный кабинет не роняет список кампаний")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -112,5 +191,10 @@ if __name__ == "__main__":
     test_api_logout_clears_session()
     test_unknown_api_path_uses_the_same_error_shape()
     test_jinja_panel_still_works_alongside_api()
+    test_overview_totals_sum_across_products()
+    test_overview_filters_by_campaign()
+    test_overview_empty_db_returns_zeros_not_error()
+    test_overview_requires_login()
+    test_campaigns_survive_unavailable_cabinet()
     print("-" * 60)
     print("✓ Все проверки API прошли")
