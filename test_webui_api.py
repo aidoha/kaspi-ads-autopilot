@@ -257,6 +257,32 @@ def test_product_detail_returns_effective_config_and_owned_fields():
     print("✓ api: карточка товара отдаёт эффективный конфиг и свои поля")
 
 
+def test_products_list_gives_one_row_per_product_not_per_campaign():
+    """Товар, который ведётся в двух кампаниях, — это ОДИН товар. Две строки
+    с полными метриками в каждой задвоили бы расход при любой сумме по списку."""
+    c, _, db = _logged_in()
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo("Asia/Almaty")).date().isoformat()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+    _seed_snapshot(db, "c2", "s1", bid=40, ts=1_700_000_001)
+    _seed_metrics(db, day, [("c1", "s1", 1000, 10000, 0, 100, 8),
+                            ("c2", "s1", 500, 10000, 0, 40, 2)])
+
+    items = c.get("/api/products?days=7").json()["products"]
+    assert len(items) == 1, items
+    p = items[0]
+    assert sorted(p["campaign_ids"]) == ["c1", "c2"], p
+    assert p["cost"] == 1500, p           # сумма обеих кампаний, ОДИН раз
+    assert p["revenue"] == 10000, p       # выручка уровня товара, не задвоена
+    assert p["clicks"] == 140, p
+
+    # фильтр по кампании оставляет товар, но не размножает его
+    items = c.get("/api/products?campaign=c2&days=7").json()["products"]
+    assert len(items) == 1 and items[0]["sku"] == "s1", items
+    print("✓ api: товар из двух кампаний — одна строка списка")
+
+
 def test_product_detail_requires_login():
     c, _, _ = _client()
     assert c.get("/api/products/c1/s1", follow_redirects=False).status_code == 401
@@ -279,6 +305,7 @@ if __name__ == "__main__":
     test_products_list_joins_metrics_and_bid()
     test_products_list_reports_disabled_product()
     test_product_detail_returns_effective_config_and_owned_fields()
+    test_products_list_gives_one_row_per_product_not_per_campaign()
     test_product_detail_requires_login()
     print("-" * 60)
     print("✓ Все проверки API прошли")

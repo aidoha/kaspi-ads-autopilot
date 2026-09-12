@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from core.config_resolver import OVERRIDABLE_FIELDS, resolve_config
 from core.rules import load_rules_config
@@ -40,48 +40,74 @@ def build_router(ctx: ApiContext) -> APIRouter:
     @router.get("/products")
     def products(campaign: str = "all", days: int = 14,
                  user: str = Depends(require_user)):
+        """Одна строка на ТОВАР, а не на пару товар-кампания. Товар может
+        вестись в нескольких кампаниях одновременно — метрики, ставка и
+        спарклайн у него одни (уровня SKU), а `campaign_id` превратился бы
+        в задвоение денег при сумме по списку. `campaign` — фильтр
+        принадлежности, а не измерение строки: он решает, какие товары
+        показать, но не режет их метрики по кампании."""
         days = max(1, min(int(days), 90))
         now = datetime.now(ALMATY)
-        out = []
         with open_store(ctx) as store:
             names = store.get_sku_name_map()
             controls = {(cid, sku): ctl
                         for cid, sku, ctl in store.all_product_controls()}
-            campaign_ids = ({campaign} if campaign != "all"
-                            else {cid for cid, _ in controls} |
-                                 _all_campaign_ids(store))
-            for cid in sorted(campaign_ids):
+            all_campaign_ids = ({cid for cid, _ in controls} |
+                                _all_campaign_ids(store))
+            # Сшиваем sku → все кампании, где он встречен (нужно ДО фильтра
+            # по campaign, иначе не узнаем полное членство товара).
+            by_sku: dict[str, dict] = {}
+            for cid in sorted(all_campaign_ids):
                 for row in store.get_campaign_skus(cid):
-                    sku = row["sku"]
-                    series = store.get_metrics_series(sku, days)
-                    cost = sum(p["cost"] or 0 for p in series)
-                    # Выручка уже свёрнута по дням внутри get_metrics_series —
-                    # здесь остаётся сложить дни, а не строки кампаний.
-                    revs = [p["revenue"] for p in series if p["revenue"] is not None]
-                    revenue = sum(revs) if revs else None
-                    clicks = sum(p["clicks"] or 0 for p in series)
-                    carts = sum(p["carts"] or 0 for p in series)
-                    views = sum(p["views"] or 0 for p in series)
-                    ctl = controls.get((cid, sku))
-                    spark = [s["bid"] for s in store.get_snapshot_series(sku, days)]
-                    out.append({
-                        "sku": sku,
+                    entry = by_sku.setdefault(row["sku"], {
                         "merchant_sku": row["merchant_sku"],
-                        "campaign_id": cid,
-                        "name": names.get(sku) or names.get(row["merchant_sku"]),
                         "bid": row["bid"],
-                        "cost": cost,
-                        "revenue": revenue,
-                        "clicks": clicks,
-                        "carts": carts,
-                        "tacos": (cost / revenue) if revenue else None,
-                        "roas": None if (not cost or revenue is None) else revenue / cost,
-                        "ctr": (clicks / views) if views else None,
-                        "cr": (carts / clicks) if clicks else None,
-                        "enabled": True if ctl is None else bool(ctl.enabled),
-                        "status": _status(ctl, now),
-                        "bid_spark": spark,
+                        "campaign_ids": [],
                     })
+                    entry["campaign_ids"].append(cid)
+
+            out = []
+            for sku, info in sorted(by_sku.items()):
+                cids = sorted(info["campaign_ids"])
+                if campaign != "all" and campaign not in cids:
+                    continue
+                series = store.get_metrics_series(sku, days)
+                cost = sum(p["cost"] or 0 for p in series)
+                # Выручка уже свёрнута по дням внутри get_metrics_series —
+                # здесь остаётся сложить дни, а не строки кампаний.
+                revs = [p["revenue"] for p in series if p["revenue"] is not None]
+                revenue = sum(revs) if revs else None
+                clicks = sum(p["clicks"] or 0 for p in series)
+                carts = sum(p["carts"] or 0 for p in series)
+                views = sum(p["views"] or 0 for p in series)
+                spark = [s["bid"] for s in store.get_snapshot_series(sku, days)]
+
+                # Контроль — по каждой кампании свой (None = дефолт «активен»).
+                # enabled = ведётся хоть где-то; status — от активной кампании,
+                # а если активных нет — от первой по порядку.
+                ctls = [controls.get((cid, sku)) for cid in cids]
+                enabled = any(True if c is None else bool(c.enabled) for c in ctls)
+                statuses = [_status(c, now) for c in ctls]
+                status = "активен" if "активен" in statuses else statuses[0]
+
+                out.append({
+                    "sku": sku,
+                    "merchant_sku": info["merchant_sku"],
+                    "campaign_ids": cids,
+                    "name": names.get(sku) or names.get(info["merchant_sku"]),
+                    "bid": info["bid"],
+                    "cost": cost,
+                    "revenue": revenue,
+                    "clicks": clicks,
+                    "carts": carts,
+                    "tacos": (cost / revenue) if revenue else None,
+                    "roas": None if (not cost or revenue is None) else revenue / cost,
+                    "ctr": (clicks / views) if views else None,
+                    "cr": (carts / clicks) if clicks else None,
+                    "enabled": enabled,
+                    "status": status,
+                    "bid_spark": spark,
+                })
         return {"products": out}
 
     @router.get("/products/{campaign_id}/{sku}")
