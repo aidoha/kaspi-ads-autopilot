@@ -411,6 +411,22 @@ def test_metrics_daily_null_only_when_denominator_is_zero():
     print("✓ NULL только там, где знаменатель ноль")
 
 
+def test_metrics_daily_keeps_rows_of_both_campaigns():
+    """Один товар в двух кампаниях: строки не должны затирать друг друга,
+    иначе расход одной из кампаний исчезает молча."""
+    s = new_store()
+    common = dict(day="2026-09-12", sku="s1", merchant_sku="m1", gmv=0,
+                  views=0, clicks=0, carts=0, transactions=0, ctr=0.0,
+                  cr=0.0, revenue=1000, ts=1)
+    s.upsert_metrics_daily(campaign_id="c1", cost=100, **common)
+    s.upsert_metrics_daily(campaign_id="c2", cost=250, **common)
+
+    rows = s.get_metrics_for_day("2026-09-12")
+    assert len(rows) == 2, rows
+    assert sorted(r["cost"] for r in rows) == [100, 250], rows
+    print("✓ metrics_daily хранит строки обеих кампаний товара")
+
+
 def test_metrics_series_ascending_and_limited():
     """Ряд для графика: свежие N дней, по возрастанию — как рисует ось X."""
     s = new_store()
@@ -490,6 +506,7 @@ if __name__ == "__main__":
     test_metrics_daily_computes_and_stores_ratios()
     test_metrics_daily_upsert_overwrites_same_day()
     test_metrics_daily_null_only_when_denominator_is_zero()
+    test_metrics_daily_keeps_rows_of_both_campaigns()
     test_metrics_series_ascending_and_limited()
     test_ai_insight_roundtrip_and_overwrite()
     test_count_ai_calls_counts_forced_recomputes()

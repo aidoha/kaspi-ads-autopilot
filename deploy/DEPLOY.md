@@ -56,7 +56,13 @@ nano config/.env
   (или перечисли id через запятую, напр. `2899523,3032419`).
 - `ANTHROPIC_API_KEY` — для дневного LLM-разбора (опционально).
 - `DAILY_METRICS_ENABLED=1` — часовой сбор подневных метрик для графиков
-  панели. Ставит +2 запроса в кабинет и +2 в Shop API в час на кампанию.
+  панели. Добавляет 2 запроса в кабинет на кампанию на день, ПЛЮС ДВА
+  ПОЛНЫХ ОБХОДА заказов Shop API в час (по одному на каждый обрабатываемый
+  день — сегодня и вчера): постраничный список заказов за день плюс
+  отдельный запрос состава на КАЖДЫЙ заказ. Это примерно удваивает нагрузку
+  на Shop API относительно уже существующего revenue-цикла. При сомнениях
+  джоб гасится флагом `DAILY_METRICS_ENABLED=0`, ставочные контуры это не
+  затрагивает.
 
 Инлайн-комментарии в `.env` можно оставить — `worker.py` грузит его через
 python-dotenv, который их срезает. (Именно поэтому в systemd-юните НЕ
@@ -144,6 +150,9 @@ sudo systemctl restart kaspi-autopilot
 - **Логи:** `journalctl -u kaspi-autopilot -f` (или `--since "1 hour ago"`).
 - **Обновление кода:**
   ```bash
+  # снять копию БД перед обновлением — схема иногда меняется, откат должен быть простым
+  sudo -iu kaspi cp /opt/kaspi-ads-autopilot/db/autopilot.db \
+    /opt/kaspi-ads-autopilot/db/autopilot.db.bak-$(date +%F)
   sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot && git pull && .venv/bin/pip install -r requirements.txt'
   sudo systemctl restart kaspi-autopilot
   ```

@@ -6,6 +6,11 @@ store.py — SQLite-персистенция воркера (stdlib sqlite3, б�
   revenue_cache     — кэш выручки по merchant_sku (тяжёлый обход Shop API реже тика);
   decisions_log     — полный аудит каждого решения с причиной;
   tacos_daily       — суточный TACoS по SKU (для аналитика/графиков);
+  settings_audit    — аудит правок настроек через UI (кто/что/когда поменял);
+  config_overrides  — оверрайды конфига по scope (кампания/товар) поверх глобала;
+  product_control   — дейпартинг/вкл-выкл товара (окно часов, дни недели, enabled);
+  bid_parking       — запаркованная ставка товара на время ночного простоя;
+  product_names     — человекочитаемые названия товаров по merchant_sku;
   metrics_daily     — подневные метрики товара (CTR/CR/ROAS для графиков);
   ai_insights       — разборы LLM-аналитика (кэш + счётчик расхода).
 
@@ -62,6 +67,10 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS ix_decisions_sku_day ON decisions_log(sku, day);
 
+            -- Колонка sku здесь — это MERCHANT_SKU (offer.code), не кампанийный
+            -- sku: record_tacos пишет r.merchant_sku (см. worker.py). Соседняя
+            -- таблица metrics_daily называет колонку так же, но кладёт туда
+            -- кампанийный sku — JOIN по sku между этими таблицами не сработает.
             CREATE TABLE IF NOT EXISTS tacos_daily (
                 day TEXT, sku TEXT, tacos REAL, cost REAL, revenue REAL,
                 PRIMARY KEY (day, sku)
@@ -113,6 +122,17 @@ class Store:
             -- значение СКОЛЬЗЯЩЕГО ОКНА на конец дня, а графику нужен именно
             -- день. Наполняется отдельным джобом, который спрашивает кабинет
             -- со StartDate = EndDate = день.
+            --
+            -- Колонка sku — это КАМПАНИЙНЫЙ sku (не merchant_sku!): совсем
+            -- другой ключ, чем sku в tacos_daily (см. комментарий там). Джойн
+            -- по этой колонке между двумя таблицами напрямую не сработает.
+            --
+            -- ВАЖНО: revenue, tacos, roas в строке — величины УРОВНЯ ТОВАРА,
+            -- а не кампании. Выручка приходит из Shop API по merchant_sku и
+            -- к кампаниям не привязана, поэтому у товара, который ведётся в
+            -- двух кампаниях, обе строки несут ОДНУ И ТУ ЖЕ полную выручку.
+            -- Суммировать revenue/tacos/roas по кампаниям нельзя — задвоится.
+            -- Суммировать можно только cost, clicks, views, carts, gmv.
             CREATE TABLE IF NOT EXISTS metrics_daily (
                 day          TEXT,
                 campaign_id  TEXT,
@@ -131,7 +151,7 @@ class Store:
                 roas         REAL,
                 roas_gmv     REAL,
                 ts           INTEGER,
-                PRIMARY KEY (day, sku)
+                PRIMARY KEY (day, campaign_id, sku)
             );
             CREATE INDEX IF NOT EXISTS ix_metrics_sku_day
                 ON metrics_daily(sku, day);
@@ -155,8 +175,15 @@ class Store:
         """)
         # Позиционный трекер удалён: с датацентрового IP Kaspi отдавал 429, на
         # VPS таблица не наполнялась. Сносим явно, иначе она вечно висит в
-        # боевой БД мёртвым грузом.
-        self._conn.execute("DROP TABLE IF EXISTS position_snapshots")
+        # боевой БД мёртвым грузом. Store открывается на каждый HTTP-запрос
+        # (webui/app.py), поэтому проверяем наличие таблицы через
+        # sqlite_master — иначе DROP гоняется вхолостую на каждый запрос.
+        exists = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='position_snapshots'"
+        ).fetchone()
+        if exists:
+            self._conn.execute("DROP TABLE position_snapshots")
         # Миграция старой БД: добавить campaign_id, если таблица уже была без него.
         cols = {r["name"] for r in
                 self._conn.execute("PRAGMA table_info(decisions_log)")}
@@ -544,8 +571,7 @@ class Store:
                (day, campaign_id, sku, merchant_sku, cost, gmv, views, clicks,
                 carts, transactions, ctr, cr, revenue, tacos, roas, roas_gmv, ts)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(day, sku) DO UPDATE SET
-                 campaign_id=excluded.campaign_id,
+               ON CONFLICT(day, campaign_id, sku) DO UPDATE SET
                  merchant_sku=excluded.merchant_sku,
                  cost=excluded.cost, gmv=excluded.gmv, views=excluded.views,
                  clicks=excluded.clicks, carts=excluded.carts,
