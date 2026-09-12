@@ -379,6 +379,128 @@ def test_load_cfg_safe_hot_reload_and_fallback():
     print("✓ worker: load_cfg_safe — hot-reload + фолбэк на прошлый cfg при битом yaml")
 
 
+def test_daily_metrics_asks_marketing_per_day_and_writes_rows():
+    """Кабинет отдаёт счётчики за ПЕРИОД запроса, поэтому за честный день
+    спрашиваем StartDate = EndDate = этот день. Проверяем именно это."""
+    from worker import run_daily_metrics_cycle
+
+    asked = []
+
+    class FakeMarketing:
+        def list_active_campaigns(self, start_date, end_date):
+            return [Campaign(id="c1", name="Кампания", state="Enabled",
+                             daily_budget=40000)]
+
+        def get_campaign_products(self, campaign_id, start_date, end_date):
+            asked.append((campaign_id, start_date, end_date))
+            return [cp(sku="s1", merchant_sku="m1", cost=500, gmv=4000,
+                       views=1000, clicks=50, carts=3, transactions=2,
+                       ctr=0.05, cr=0.06)]
+
+    class FakeCollector:
+        def collect_for_day(self, day):
+            return {"m1": SkuRevenue(merchant_sku="m1", revenue=5000)}
+
+    store = Store(os.path.join(tempfile.mkdtemp(), "t.db"))
+    ctx = WorkerContext(
+        marketing=FakeMarketing(), store=store, cfg=RulesConfig(),
+        revenue_collector=FakeCollector(),
+        now_fn=lambda: datetime(2026, 9, 12, 14, 0, tzinfo=ALMATY))
+
+    written = run_daily_metrics_cycle(ctx, days_back=1)
+
+    assert written == 2, written
+    # вчера, затем сегодня; StartDate всегда равен EndDate
+    assert asked == [("c1", "2026-09-11", "2026-09-11"),
+                     ("c1", "2026-09-12", "2026-09-12")], asked
+
+    row = store.get_metrics_for_day("2026-09-12")[0]
+    assert row["sku"] == "s1" and row["cost"] == 500, row
+    assert row["revenue"] == 5000, row
+    assert abs(row["roas"] - 10.0) < 1e-9, row["roas"]
+    print("✓ джоб метрик спрашивает кабинет подневно и пишет строки")
+
+
+def test_daily_metrics_fetches_revenue_once_per_day():
+    """Выручка за день общая для всех кампаний — тяжёлый обход Shop API
+    не должен повторяться на каждую кампанию."""
+    from worker import run_daily_metrics_cycle
+
+    calls = []
+
+    class FakeMarketing:
+        def list_active_campaigns(self, start_date, end_date):
+            return [Campaign(id="c1", name="A", state="Enabled"),
+                    Campaign(id="c2", name="B", state="Enabled")]
+
+        def get_campaign_products(self, campaign_id, start_date, end_date):
+            return [cp(sku=f"{campaign_id}-s", merchant_sku="m1")]
+
+    class FakeCollector:
+        def collect_for_day(self, day):
+            calls.append(day)
+            return {}
+
+    store = Store(os.path.join(tempfile.mkdtemp(), "t.db"))
+    ctx = WorkerContext(
+        marketing=FakeMarketing(), store=store, cfg=RulesConfig(),
+        revenue_collector=FakeCollector(),
+        now_fn=lambda: datetime(2026, 9, 12, 14, 0, tzinfo=ALMATY))
+
+    run_daily_metrics_cycle(ctx, days_back=1)
+
+    assert calls == ["2026-09-11", "2026-09-12"], calls
+    print("✓ выручка за день собирается один раз на все кампании")
+
+
+def test_daily_metrics_isolates_failing_campaign():
+    """Падение одной кампании не должно ронять джоб — планировщик живёт."""
+    from worker import run_daily_metrics_cycle
+
+    class FakeMarketing:
+        def list_active_campaigns(self, start_date, end_date):
+            return [Campaign(id="bad", name="A", state="Enabled"),
+                    Campaign(id="good", name="B", state="Enabled")]
+
+        def get_campaign_products(self, campaign_id, start_date, end_date):
+            if campaign_id == "bad":
+                raise RuntimeError("кабинет отвалился")
+            return [cp(sku="ok", merchant_sku="m1")]
+
+    class FakeCollector:
+        def collect_for_day(self, day):
+            return {}
+
+    store = Store(os.path.join(tempfile.mkdtemp(), "t.db"))
+    ctx = WorkerContext(
+        marketing=FakeMarketing(), store=store, cfg=RulesConfig(),
+        revenue_collector=FakeCollector(),
+        now_fn=lambda: datetime(2026, 9, 12, 14, 0, tzinfo=ALMATY))
+
+    written = run_daily_metrics_cycle(ctx, days_back=0)
+
+    assert written == 1, written
+    assert [r["sku"] for r in store.get_metrics_for_day("2026-09-12")] == ["ok"]
+    print("✓ падение одной кампании не роняет джоб метрик")
+
+
+def test_daily_metrics_survives_unavailable_campaign_list():
+    """Список кампаний недоступен — цикл пропускаем, как это делает run_cycle."""
+    from worker import run_daily_metrics_cycle
+
+    class FakeMarketing:
+        def list_active_campaigns(self, start_date, end_date):
+            raise RuntimeError("сеть легла")
+
+    store = Store(os.path.join(tempfile.mkdtemp(), "t.db"))
+    ctx = WorkerContext(marketing=FakeMarketing(), store=store, cfg=RulesConfig(),
+                        revenue_collector=None,
+                        now_fn=lambda: datetime(2026, 9, 12, tzinfo=ALMATY))
+
+    assert run_daily_metrics_cycle(ctx) == 0
+    print("✓ недоступный список кампаний не роняет джоб метрик")
+
+
 if __name__ == "__main__":
     test_dry_run_logs_but_no_put()
     test_live_run_sends_put_with_new_bid()
@@ -400,5 +522,9 @@ if __name__ == "__main__":
     test_run_tick_restores_parked_bid_in_morning()
     test_run_tick_fast_paces_by_time_of_day()
     test_load_cfg_safe_hot_reload_and_fallback()
+    test_daily_metrics_asks_marketing_per_day_and_writes_rows()
+    test_daily_metrics_fetches_revenue_once_per_day()
+    test_daily_metrics_isolates_failing_campaign()
+    test_daily_metrics_survives_unavailable_campaign_list()
     print("-" * 60)
     print("✓ Все проверки worker прошли")

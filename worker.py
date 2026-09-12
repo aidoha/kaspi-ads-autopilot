@@ -66,6 +66,70 @@ def run_revenue_cycle(ctx: WorkerContext):
     return revenue
 
 
+# ---- подневные метрики (источник графиков панели) --------------------------
+
+def run_daily_metrics_cycle(ctx: WorkerContext, days_back: int = 1) -> int:
+    """Наполняет metrics_daily за сегодня и `days_back` предыдущих дней.
+
+    Зачем отдельный джоб, а не данные из тика: кабинет отдаёт views/clicks/
+    carts/gmv/ctr/cr за ПЕРИОД запроса целиком, а тик спрашивает окно
+    tacos_window_days. Честный день получается только запросом со
+    StartDate = EndDate = этот день.
+
+    Вчера пересчитываем каждый час: заказы отменяют задним числом, и выручка
+    вчерашнего дня продолжает меняться ещё сутки.
+
+    Изоляция как в run_cycle: недоступный список кампаний → пропускаем цикл,
+    падение одной кампании → логируем и идём дальше. Планировщик не роняем.
+    """
+    now = ctx.now_fn().astimezone(ALMATY)
+    ts = int(now.timestamp())
+    today = now.date()
+
+    probe = today.isoformat()
+    try:
+        campaigns = ctx.marketing.list_active_campaigns(probe, probe)
+    except Exception as e:  # noqa: BLE001 — сеть/кабинет не должны ронять джоб
+        log.error("Список кампаний недоступен, джоб метрик пропущен: %s", e)
+        return 0
+
+    allow = set(ctx.campaign_ids or [])
+    if allow:
+        campaigns = [c for c in campaigns if c.id in allow]
+
+    written = 0
+    for back in range(days_back, -1, -1):
+        day = (today - timedelta(days=back)).isoformat()
+        # Выручка за день общая для всех кампаний — обход Shop API тяжёлый,
+        # дёргаем его один раз на день, а не на каждую кампанию.
+        try:
+            revenue = ctx.revenue_collector.collect_for_day(day)
+        except Exception as e:  # noqa: BLE001
+            log.error("Выручка за %s недоступна, метрики без неё: %s", day, e)
+            revenue = {}
+
+        for c in campaigns:
+            try:
+                products = ctx.marketing.get_campaign_products(c.id, day, day)
+            except Exception as e:  # noqa: BLE001
+                log.error("Метрики кампании %s за %s не собраны: %s", c.id, day, e)
+                continue
+
+            for p in products:
+                r = revenue.get(p.merchant_sku)
+                ctx.store.upsert_metrics_daily(
+                    day=day, campaign_id=c.id, sku=p.sku,
+                    merchant_sku=p.merchant_sku, cost=p.cost, gmv=p.gmv,
+                    views=p.views, clicks=p.clicks, carts=p.carts,
+                    transactions=p.transactions, ctr=p.ctr, cr=p.cr,
+                    revenue=r.revenue if r else None, ts=ts)
+                written += 1
+
+    log.info("Подневные метрики: дней=%s, кампаний=%s, строк=%s",
+             days_back + 1, len(campaigns), written)
+    return written
+
+
 # ---- ставочный тик ---------------------------------------------------------
 
 def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
@@ -323,10 +387,23 @@ def main():  # pragma: no cover
     else:
         log.info("LLM-аналитик ВЫКЛЮЧЕН (ANALYST_ENABLED=0)")
 
+    # Подневные метрики для графиков панели. Отдельным флагом, как и аналитик:
+    # джоб ходит в кабинет и Shop API чаще прочих, и его нужно уметь погасить,
+    # не трогая ставочные контуры.
+    daily_metrics_enabled = os.environ.get("DAILY_METRICS_ENABLED", "1") != "0"
+    if daily_metrics_enabled:
+        sched.add_job(lambda: run_daily_metrics_cycle(build_ctx()),
+                      "interval", minutes=60, id="daily_metrics",
+                      max_instances=1, coalesce=True,
+                      next_run_time=datetime.now(ALMATY))
+    else:
+        log.info("Джоб подневных метрик ВЫКЛЮЧЕН (DAILY_METRICS_ENABLED=0)")
+
     log.info("Автопилот запущен (dry_run=%s, кампании=%s). Расписания: revenue/60м, "
-             "fast/5м, slow/9,12,15,18,21%s (Алматы)",
+             "fast/5м, slow/9,12,15,18,21%s%s (Алматы)",
              cfg_holder["cfg"].dry_run, cfg_holder["cfg"].campaign_ids or env_ids or "все активные",
-             ", analyst/22:00" if analyst_enabled else " (analyst ВЫКЛ)")
+             ", analyst/22:00" if analyst_enabled else " (analyst ВЫКЛ)",
+             ", metrics/60м" if daily_metrics_enabled else " (metrics ВЫКЛ)")
     sched.start()
 
 
