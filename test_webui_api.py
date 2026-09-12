@@ -432,6 +432,34 @@ def test_dry_run_toggle_does_not_leak_into_settings_save():
     print("✓ api: dry_run не меняется через сохранение настроек")
 
 
+def test_api_preview_returns_both_loops_and_changes_nothing():
+    """Превью читает состояние и ничего не пишет: нажатие кнопки в панели не
+    должно менять поведение биддера."""
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+
+    r = c.post("/api/products/c1/s1/preview")
+    assert r.status_code == 200, r.text
+    got = r.json()["preview"]
+    assert set(got) == {"fast", "slow"}, got
+    assert got["fast"]["reason"], got
+
+    s = Store(db)
+    try:
+        assert s.get_parked_bids("c1") == {}, "превью запарковало ставку"
+    finally:
+        s.close()
+    print("✓ api: превью отдаёт оба контура и ничего не меняет")
+
+
+def test_api_preview_without_snapshot_is_null_not_error():
+    c, _, _ = _logged_in()
+    r = c.post("/api/products/c1/нет-такого/preview")
+    assert r.status_code == 200, r.text
+    assert r.json()["preview"] is None, r.json()
+    print("✓ api: превью без снапшота отдаёт null, а не 500")
+
+
 def test_write_endpoints_require_login():
     c, _, _ = _client()
     assert c.put("/api/products/c1/s1/settings",
@@ -467,6 +495,8 @@ if __name__ == "__main__":
     test_put_control_persists_and_validates_window()
     test_global_settings_roundtrip_and_audit()
     test_dry_run_toggle_does_not_leak_into_settings_save()
+    test_api_preview_returns_both_loops_and_changes_nothing()
+    test_api_preview_without_snapshot_is_null_not_error()
     test_write_endpoints_require_login()
     print("-" * 60)
     print("✓ Все проверки API прошли")

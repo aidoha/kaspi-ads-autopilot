@@ -131,6 +131,18 @@ def build_router(ctx: ApiContext) -> APIRouter:
             "decisions": decisions,
         }
 
+    @router.post("/products/{campaign_id}/{sku}/preview")
+    def product_preview(campaign_id: str, sku: str,
+                        user: str = Depends(require_user)):
+        """Что биддер сделал бы с товаром прямо сейчас, ничего не отправляя.
+        Логика в core.preview — общая с Jinja-панелью, две копии одного и
+        того же решения по реальным деньгам разошлись бы при первой правке."""
+        from core.preview import preview_decision
+        with open_store(ctx) as store:
+            got = preview_decision(store, ctx.rules_path, campaign_id, sku,
+                                   datetime.now(ALMATY))
+        return {"preview": got}
+
     @router.get("/products/{campaign_id}/{sku}/series")
     def product_series(campaign_id: str, sku: str, days: int = 14,
                        user: str = Depends(require_user)):

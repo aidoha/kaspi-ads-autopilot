@@ -540,57 +540,17 @@ def create_app() -> FastAPI:
     async def sku_preview(request: Request, campaign_id: str, sku: str):
         if not user(request):
             return RedirectResponse("/login", status_code=303)
-        from core.reconcile import reconcile
-        from core.rules import evaluate_fast, evaluate_slow
-        from core.daypart import split_by_control
+        from core.preview import preview_decision
         store = Store(db_path)
         try:
-            snap = store.get_latest_snapshot(sku)     # dict с полями CampaignProduct
-            revenue = store.get_revenue_cache()
-            g = load_rules_config(rules_path)
-            camp_ov = store.get_overrides("campaign", campaign_id)
-            controls = store.list_product_control(campaign_id)
-            preview = None
-            if snap is not None:
-                from connectors.marketing_client import CampaignProduct
-                p = CampaignProduct(
-                    sku=snap["sku"], merchant_sku=snap.get("merchant_sku", ""),
-                    campaign_product_id=0, bid=snap["bid"],
-                    avg_cpc=snap.get("avg_cpc", 0), score=snap.get("score", 0),
-                    buy_box=bool(snap.get("buy_box", False)),
-                    product_state=snap.get("product_state", "Active"),
-                    cost=snap.get("cost", 0), cost_today=snap.get("cost_today", 0),
-                    gmv=0, crr=0, cr=0, ctr=0, views=0,
-                    clicks=snap.get("clicks", 0), carts=snap.get("carts", 0),
-                    transactions=0, price=snap.get("price", 0))
-                reconciled = reconcile([p], revenue)
-
-                def cfg_for(s):
-                    return resolve_config(g, camp_ov, store.get_overrides("sku", s.sku))
-
-                def min_bid_for(sk):
-                    return resolve_config(g, camp_ov, store.get_overrides("sku", sk)).min_bid
-
-                def ceiling_for(sk):
-                    return resolve_config(g, camp_ov, store.get_overrides("sku", sk)).bid_ceiling
-
-                # Превью сухое: парковку читаем (чтобы показать восстановление),
-                # но НЕ сохраняем/не чистим — это делает только боевой worker.run_tick.
-                parked = store.get_parked_bids(campaign_id)
-                active, ctrl_dec, _parking = split_by_control(
-                    reconciled, controls, datetime.now(ALMATY), min_bid_for,
-                    parked, ceiling_for)
-                if ctrl_dec:
-                    d = ctrl_dec[0]
-                    preview = {"control": (d.action, d.reason)}
-                else:
-                    fast = evaluate_fast(active, cfg_for)
-                    slow = evaluate_slow(active, cfg_for)
-                    # показываем оба контура: что решит тормозной и что окупаемостный
-                    preview = {"fast": (fast[0].action, fast[0].reason),
-                               "slow": (slow[0].action, slow[0].reason)}
+            got = preview_decision(store, rules_path, campaign_id, sku,
+                                   datetime.now(ALMATY))
         finally:
             store.close()
+        # Шаблон рисует пары (действие, причина) — приводим к его форме,
+        # чтобы разметку не трогать.
+        preview = ({k: (v["action"], v["reason"]) for k, v in got.items()}
+                   if got else None)
         ctx = _control_ctx(request, campaign_id, sku, [])
         ctx["preview"] = preview
         return templates.TemplateResponse(request, "sku_settings.html", ctx)
