@@ -1,0 +1,943 @@
+<title>Автопилот ставок Kaspi</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f4f3f0;
+    --surface:     #ffffff;
+    --surface-2:   #faf9f7;
+    --surface-3:   #f0efec;
+    --ink:         #1a1a18;
+    --ink-2:       #6e6c66;
+    --ink-3:       #a3a19a;
+    --hairline:    #e6e4de;
+    --hairline-2:  #d8d6cf;
+
+    --good:        #0a8a0a;
+    --good-bg:     #e8f5e8;
+    --warn:        #a8730a;
+    --warn-bg:     #fbf1dd;
+    --crit:        #c43535;
+    --crit-bg:     #fbeaea;
+
+    --switch-on:   #30c157;
+    --switch-off:  #d8d6cf;
+
+    --s-bid:       #1a1a18;
+    --s-cpc:       #2a78d6;
+    --s-ctr:       #2a78d6;
+    --s-cr:        #eb6834;
+    --s-tacos:     #2a78d6;
+    --band:        rgba(42,120,214,0.09);
+    --grid:        #ebe9e3;
+    --axis:        #d3d1ca;
+    --muted-ink:   #8e8c85;
+
+    --radius:      14px;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page:       #000000;
+      --surface:    #1c1c1e;
+      --surface-2:  #242426;
+      --surface-3:  #2c2c2e;
+      --ink:        #f5f5f4;
+      --ink-2:      #a1a19a;
+      --ink-3:      #77756f;
+      --hairline:   #38383a;
+      --hairline-2: #48484a;
+
+      --good:       #2fc42f;
+      --good-bg:    #152a15;
+      --warn:       #e0a419;
+      --warn-bg:    #2e2410;
+      --crit:       #ef5f5f;
+      --crit-bg:    #2e1616;
+
+      --switch-off: #48484a;
+
+      --s-bid:      #f5f5f4;
+      --s-cpc:      #3987e5;
+      --s-ctr:      #3987e5;
+      --s-cr:       #d95926;
+      --s-tacos:    #3987e5;
+      --band:       rgba(57,135,229,0.16);
+      --grid:       #2c2c2e;
+      --axis:       #48484a;
+      --muted-ink:  #8e8c85;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:       #000000;
+    --surface:    #1c1c1e;
+    --surface-2:  #242426;
+    --surface-3:  #2c2c2e;
+    --ink:        #f5f5f4;
+    --ink-2:      #a1a19a;
+    --ink-3:      #77756f;
+    --hairline:   #38383a;
+    --hairline-2: #48484a;
+    --good:       #2fc42f;
+    --good-bg:    #152a15;
+    --warn:       #e0a419;
+    --warn-bg:    #2e2410;
+    --crit:       #ef5f5f;
+    --crit-bg:    #2e1616;
+    --switch-off: #48484a;
+    --s-bid:      #f5f5f4;
+    --s-cpc:      #3987e5;
+    --s-ctr:      #3987e5;
+    --s-cr:       #d95926;
+    --s-tacos:    #3987e5;
+    --band:       rgba(57,135,229,0.16);
+    --grid:       #2c2c2e;
+    --axis:       #48484a;
+    --muted-ink:  #8e8c85;
+  }
+
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---- header ---- */
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    background: color-mix(in srgb, var(--page) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .topbar-inner {
+    max-width: 1060px; margin: 0 auto; padding: 0 24px;
+    height: 52px; display: flex; align-items: center; gap: 16px;
+  }
+  .brand {
+    font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+    margin-right: auto; display: flex; align-items: center; gap: 9px;
+  }
+  .brand-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--good); flex: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent);
+  }
+  .brand small { color: var(--ink-3); font-weight: 400; font-size: 13px; }
+
+  select.plain {
+    font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--hairline-2);
+    border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  }
+
+  .segmented {
+    display: inline-flex; background: var(--surface-3);
+    border-radius: 9px; padding: 2px; gap: 2px;
+  }
+  .segmented button {
+    font: inherit; font-size: 13px; font-weight: 500; color: var(--ink-2);
+    background: none; border: 0; border-radius: 7px;
+    padding: 4px 11px; cursor: pointer; white-space: nowrap;
+  }
+  .segmented button[aria-pressed="true"] {
+    background: var(--surface); color: var(--ink);
+    box-shadow: 0 1px 2px rgba(0,0,0,.10), 0 0 0 .5px rgba(0,0,0,.04);
+  }
+
+  .pill-run {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; letter-spacing: .01em;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--warn-bg); color: var(--warn);
+  }
+
+  /* ---- mockup notice ---- */
+  .notice {
+    margin: 16px 0 0; padding: 10px 14px;
+    border: 1px dashed var(--hairline-2); border-radius: 10px;
+    font-size: 13px; color: var(--ink-2); background: var(--surface-2);
+  }
+  .notice b { color: var(--ink); font-weight: 600; }
+
+  /* ---- page head ---- */
+  .pagehead { padding: 34px 0 22px; }
+  h1 {
+    margin: 0 0 4px; font-size: 30px; font-weight: 640;
+    letter-spacing: -0.022em; text-wrap: balance;
+  }
+  .sub { margin: 0; color: var(--ink-2); font-size: 14px; }
+  .sub b { color: var(--ink); font-weight: 500; }
+
+  /* ---- KPI band: no cards, hairline-separated ---- */
+  .kpis {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .kpi { padding: 18px 20px 18px 0; }
+  .kpi + .kpi { border-left: 1px solid var(--hairline); padding-left: 20px; }
+  .kpi-label {
+    font-size: 11px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px;
+  }
+  .kpi-val {
+    font-size: 26px; font-weight: 600; letter-spacing: -0.025em;
+    line-height: 1.15;
+  }
+  .kpi-val .cur { font-size: 17px; font-weight: 500; color: var(--ink-2); }
+  .kpi-note { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+  .kpi-note .up { color: var(--good); }
+  .kpi-note .down { color: var(--crit); }
+
+  /* ---- section ---- */
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    margin: 36px 0 10px; padding: 0 4px;
+  }
+  h2 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -0.015em; }
+  .sec-head .count { color: var(--ink-3); font-size: 13px; margin-right: auto; }
+  .linkish {
+    font-size: 13px; color: var(--s-cpc); background: none; border: 0;
+    font: inherit; font-size: 13px; cursor: pointer; padding: 0;
+  }
+
+  /* ---- grouped list (Apple settings style) ---- */
+  .group {
+    background: var(--surface); border-radius: var(--radius);
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.05);
+    overflow: hidden;
+  }
+  :root[data-theme="dark"] .group,
+  :root:not([data-theme="light"]) .group { }
+
+  .cols {
+    display: grid; align-items: center;
+    grid-template-columns: minmax(0,1fr) 92px 74px 66px 62px 66px 58px;
+    gap: 14px; padding: 9px 18px;
+    font-size: 11px; font-weight: 600; letter-spacing: .045em;
+    text-transform: uppercase; color: var(--ink-3);
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface-2);
+  }
+  .cols span:not(:first-child) { text-align: right; }
+  .cols span:last-child { text-align: center; }
+
+  .row {
+    display: grid; align-items: center;
+    grid-template-columns: minmax(0,1fr) 92px 74px 66px 62px 66px 58px;
+    gap: 14px; padding: 13px 18px;
+    cursor: pointer; background: none; border: 0; width: 100%;
+    font: inherit; color: inherit; text-align: left;
+  }
+  .row + .row, .detail + .row { border-top: 1px solid var(--hairline); }
+  .row:hover { background: var(--surface-2); }
+  .row:focus-visible { outline: 2px solid var(--s-cpc); outline-offset: -2px; }
+
+  .pname {
+    display: flex; align-items: center; gap: 10px; min-width: 0;
+  }
+  .chev {
+    flex: none; color: var(--ink-3); transition: transform .18s ease;
+    font-size: 11px;
+  }
+  .row[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .pname-txt { min-width: 0; }
+  .pname-txt strong {
+    display: block; font-size: 14.5px; font-weight: 520; letter-spacing: -0.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pname-txt span {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+  }
+
+  .num {
+    text-align: right; font-size: 14px;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.005em;
+  }
+  .num .unit { color: var(--ink-3); font-size: 12px; }
+  .num.dim { color: var(--ink-2); }
+
+  .spark { display: block; margin-left: auto; }
+
+  .tag {
+    display: inline-block; font-size: 13px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 7px; border-radius: 6px;
+  }
+  .tag.good { background: var(--good-bg); color: var(--good); }
+  .tag.warn { background: var(--warn-bg); color: var(--warn); }
+  .tag.crit { background: var(--crit-bg); color: var(--crit); }
+
+  /* ---- iOS switch ---- */
+  .switch {
+    display: block; margin: 0 auto; position: relative;
+    width: 44px; height: 26px; flex: none;
+  }
+  .switch input {
+    position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0;
+    cursor: pointer;
+  }
+  .track {
+    display: block; width: 44px; height: 26px; border-radius: 999px;
+    background: var(--switch-off); transition: background .22s ease;
+    pointer-events: none;
+  }
+  .knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.28);
+    transition: transform .22s cubic-bezier(.4,.1,.2,1);
+    pointer-events: none;
+  }
+  .switch input:checked ~ .track { background: var(--switch-on); }
+  .switch input:checked ~ .knob { transform: translateX(18px); }
+  .switch input:focus-visible ~ .track { outline: 2px solid var(--s-cpc); outline-offset: 2px; }
+
+  /* ---- detail panel ---- */
+  .detail {
+    background: var(--surface-2);
+    border-top: 1px solid var(--hairline);
+    padding: 20px 18px 22px;
+  }
+  .detail-top {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .btn {
+    font: inherit; font-size: 13px; font-weight: 550;
+    padding: 6px 14px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--hairline-2); background: var(--surface); color: var(--ink);
+  }
+  .btn:hover { background: var(--surface-3); }
+  .btn-primary {
+    background: var(--ink); color: var(--surface); border-color: var(--ink);
+    margin-left: auto;
+  }
+  .btn-primary:hover { opacity: .86; background: var(--ink); }
+
+  .charts { display: grid; gap: 16px; }
+  .chart-card {
+    background: var(--surface); border-radius: 12px; padding: 16px 16px 8px;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.06);
+  }
+  .chart-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; }
+  .chart-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .chart-sub { font-size: 12px; color: var(--ink-3); margin-right: auto; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); }
+  .legend i {
+    display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 5px; vertical-align: -1px;
+  }
+  .chart-wrap { position: relative; overflow-x: auto; }
+  .chart-wrap svg { display: block; width: 100%; height: auto; }
+
+  .small-mults { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0;
+    transition: opacity .12s ease;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--hairline-2); border-radius: 9px;
+    padding: 7px 10px; font-size: 12px; line-height: 1.5;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    white-space: nowrap; z-index: 5;
+    font-variant-numeric: tabular-nums;
+  }
+  .tip b { font-weight: 600; }
+  .tip .k { color: var(--ink-3); }
+
+  /* ---- AI card ---- */
+  .ai {
+    background: var(--surface); border-radius: 12px; padding: 16px 18px;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.06), 0 2px 10px rgba(0,0,0,.05);
+    margin-top: 16px;
+  }
+  .ai-head {
+    display: flex; align-items: center; gap: 9px; margin-bottom: 10px;
+  }
+  .ai-mark {
+    width: 22px; height: 22px; border-radius: 7px; flex: none;
+    background: var(--ink); color: var(--surface);
+    display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  }
+  .ai-head .t { font-size: 14px; font-weight: 600; }
+  .ai-head .when { font-size: 12px; color: var(--ink-3); margin-left: auto; }
+  .ai p { margin: 0 0 9px; font-size: 14px; color: var(--ink-2); max-width: 64ch; }
+  .ai p:last-of-type { margin-bottom: 0; }
+  .ai strong { color: var(--ink); font-weight: 600; }
+  .ai-acts { display: flex; gap: 8px; margin-top: 13px; flex-wrap: wrap; }
+  .ai-sug {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface-3); border-radius: 9px;
+    padding: 8px 10px 8px 12px; font-size: 13px; color: var(--ink-2);
+  }
+  .ai-sug code {
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+    background: var(--surface); padding: 1px 5px; border-radius: 5px;
+  }
+
+  /* ---- settings tab ---- */
+  .fields { display: grid; gap: 0; }
+  .field {
+    display: grid; grid-template-columns: minmax(0,1fr) 118px 92px;
+    gap: 16px; align-items: center; padding: 11px 2px;
+  }
+  .field + .field { border-top: 1px solid var(--hairline); }
+  .field-label { font-size: 14px; }
+  .field-label small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px; }
+  .field input[type="number"] {
+    font: inherit; font-size: 14px; text-align: right;
+    font-variant-numeric: tabular-nums;
+    padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--hairline-2);
+    background: var(--surface); color: var(--ink); width: 100%;
+  }
+  .field input:disabled { color: var(--ink-3); background: var(--surface-3); }
+  .inh { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .inh span { font-size: 12px; color: var(--ink-3); }
+  .switch.sm { width: 36px; height: 21px; margin: 0; }
+  .switch.sm .track { width: 36px; height: 21px; }
+  .switch.sm .knob { width: 17px; height: 17px; }
+  .switch.sm input:checked ~ .knob { transform: translateX(15px); }
+
+  /* ---- decisions tab ---- */
+  .dec { display: grid; gap: 0; }
+  .dec-row {
+    display: grid; grid-template-columns: 62px 96px minmax(0,1fr) 92px;
+    gap: 14px; align-items: center; padding: 10px 2px; font-size: 13.5px;
+  }
+  .dec-row + .dec-row { border-top: 1px solid var(--hairline); }
+  .dec-time { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  .act {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px;
+  }
+  .act.raise { background: var(--good-bg); color: var(--good); }
+  .act.lower { background: var(--crit-bg); color: var(--crit); }
+  .act.hold  { background: var(--surface-3); color: var(--ink-2); }
+  .dec-why { color: var(--ink-2); }
+  .dec-bid {
+    text-align: right; font-variant-numeric: tabular-nums;
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+  }
+  .dec-bid b { color: var(--ink); font-weight: 600; }
+
+  .tabpanel[hidden] { display: none !important; }
+
+  .footnote { margin-top: 14px; font-size: 12px; color: var(--ink-3); padding: 0 4px; }
+
+  @media (max-width: 860px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .kpi:nth-child(odd) + .kpi { border-left: 1px solid var(--hairline); }
+    .cols { display: none; }
+    .row { grid-template-columns: minmax(0,1fr) 62px 58px; }
+    .row .hide-sm { display: none; }
+    .small-mults { grid-template-columns: 1fr; }
+    .field { grid-template-columns: minmax(0,1fr) 96px; }
+    .field .inh { grid-column: 1 / -1; justify-content: flex-start; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot" aria-hidden="true"></span>
+      Автопилот ставок
+      <small>обновлено 14:32</small>
+    </div>
+    <select class="plain" aria-label="Кампания">
+      <option>Все кампании</option>
+      <option>Бытовая техника · 3032419</option>
+      <option>Уход за собой · 2899523</option>
+    </select>
+    <div class="segmented" role="group" aria-label="Период">
+      <button type="button" aria-pressed="false">7 дней</button>
+      <button type="button" aria-pressed="true">14 дней</button>
+      <button type="button" aria-pressed="false">30 дней</button>
+    </div>
+    <span class="pill-run">Тестовый режим</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <p class="notice">
+    <b>Это макет, а не рабочая панель.</b> Названия товаров, ставки, расход и выручка взяты
+    из <code>db/dev_seed.db</code>. Ряды CTR, CR и ROAS по дням — <b>выдуманный пример</b>:
+    таких данных у нас пока нет, они начнут копиться только после выката.
+  </p>
+
+  <div class="pagehead">
+    <h1>Товары</h1>
+    <p class="sub">5 товаров в 2 кампаниях · за последние <b>14 дней</b> · ставки в кабинет не уходят — включён тестовый режим</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-label">Расход</div>
+      <div class="kpi-val"><span class="cur">₸</span> 15 200</div>
+      <div class="kpi-note">из 40 000 ₸ бюджета</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Выручка</div>
+      <div class="kpi-val"><span class="cur">₸</span> 222 381</div>
+      <div class="kpi-note">Shop API, минус отмены</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">TACoS</div>
+      <div class="kpi-val">6,8<span class="cur">%</span></div>
+      <div class="kpi-note">цель 8–18<span class="up"> · ниже цели</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">ROAS</div>
+      <div class="kpi-val">14,6<span class="cur">×</span></div>
+      <div class="kpi-note">по GMV кабинета 11,9×</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Клики → корзины</div>
+      <div class="kpi-val">464 <span class="cur">→ 27</span></div>
+      <div class="kpi-note">конверсия 5,8%</div>
+    </div>
+  </div>
+
+  <div class="sec-head">
+    <h2>Все товары</h2>
+    <span class="count">биддер ведёт 4 из 5</span>
+    <button class="linkish" type="button">Настройки биддера</button>
+  </div>
+
+  <div class="group" id="list">
+    <div class="cols" aria-hidden="true">
+      <span>Товар</span>
+      <span>Ставка 14 дн</span>
+      <span>Ставка</span>
+      <span>TACoS</span>
+      <span>CTR</span>
+      <span>ROAS</span>
+      <span>Бот</span>
+    </div>
+    <!-- rows injected -->
+  </div>
+
+  <p class="footnote">
+    TACoS считается от реальной выручки Shop API за выбранный период. ROAS показан по ней же;
+    число кабинета отличается, потому что не учитывает отмены заказов.
+  </p>
+
+  <div class="sec-head">
+    <h2>Разбор за вчера</h2>
+    <span class="count">11 сентября</span>
+  </div>
+
+  <div class="ai" style="margin-top:0">
+    <div class="ai-head">
+      <span class="ai-mark" aria-hidden="true">AI</span>
+      <span class="t">Что случилось за день</span>
+      <span class="when">03:10 · 4 200 токенов</span>
+    </div>
+    <p>
+      За сутки движок принял <strong>38 решений</strong>, применил 22. Расход держался
+      в плане, TACoS по портфелю <strong>6,8%</strong> — заметно ниже целевого коридора,
+      то есть по большинству товаров вы недоплачиваете за трафик и теряете объём.
+    </p>
+    <p>
+      Один товар выбивается: <strong>Бритва Gillette Fusion5 ProGlide</strong> собрала
+      88 кликов и всего 1 корзину при TACoS 24,5%. Быстрый контур уже трижды срезал ставку,
+      но клики продолжают приходить и не конвертируются — это похоже на проблему карточки
+      или цены, а не ставки.
+    </p>
+    <div class="ai-acts">
+      <div class="ai-sug">Поднять <code>target_tacos_low</code> с 0.08 до 0.12 глобально <button class="btn" type="button">Применить</button></div>
+      <div class="ai-sug">Выключить бота на Gillette <button class="btn" type="button">Применить</button></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------- данные
+const PRODUCTS = [
+  { sku:'177420310', code:'915004821', name:'Аэрогриль Philips HD9252/90 Airfryer',
+    camp:'Бытовая техника', bid:40, cpc:28.8, cost:5200, rev:89655, tacos:5.8,
+    ctr:3.4, cr:8.6, roas:17.2, clicks:140, carts:12, on:true,
+    bidSeries:[34,34,36,36,36,38,38,40,40,40,38,40,40,40] },
+  { sku:'166350900', code:'432085472', name:'Электробритва Xiaomi Mijia S500',
+    camp:'Уход за собой', bid:18, cpc:12.96, cost:3600, rev:97297, tacos:3.7,
+    ctr:4.1, cr:7.5, roas:27.0, clicks:120, carts:9, on:true,
+    bidSeries:[14,14,15,15,16,16,16,17,17,18,18,18,18,18] },
+  { sku:'166350902', code:'771930155', name:'Бритва Gillette Fusion5 ProGlide (сменные кассеты 8 шт)',
+    camp:'Уход за собой', bid:32, cpc:23.04, cost:2800, rev:11429, tacos:24.5,
+    ctr:1.2, cr:1.1, roas:4.1, clicks:88, carts:1, on:true, flag:true,
+    bidSeries:[32,32,34,34,36,36,38,38,40,38,36,34,32,32] },
+  { sku:'177420311', code:'915004822', name:'Аэрогриль Redmond RAF-5501 (5.5 л)',
+    camp:'Бытовая техника', bid:28, cpc:20.16, cost:2100, rev:12281, tacos:17.1,
+    ctr:1.9, cr:3.8, roas:5.8, clicks:52, carts:2, on:false,
+    bidSeries:[30,30,30,29,29,28,28,28,28,28,28,28,28,28] },
+  { sku:'166350901', code:'608122048', name:'Триммер Philips OneBlade QP2620',
+    camp:'Уход за собой', bid:25, cpc:18.0, cost:1500, rev:11719, tacos:12.8,
+    ctr:2.6, cr:4.7, roas:7.8, clicks:64, carts:3, on:true,
+    bidSeries:[22,23,23,24,24,24,25,25,26,26,25,25,25,25] },
+];
+
+const DAYS = ['30.08','31.08','01.09','02.09','03.09','04.09','05.09','06.09',
+              '07.09','08.09','09.09','10.09','11.09','12.09'];
+
+// ряды для раскрытого товара (Gillette) — пример, не настоящие данные
+const SERIES = {
+  bid:   [32,32,34,34,36,36,38,38,40,38,36,34,32,32],
+  cpc:   [23.0,23.8,24.1,24.9,25.6,26.2,27.0,28.1,29.2,28.0,26.4,25.1,24.0,23.0],
+  tacos: [11.0,12.2,13.6,13.1,15.8,17.0,19.2,20.4,23.1,25.0,26.8,26.0,25.1,24.5],
+  ctr:   [2.1,2.0,1.9,1.9,1.8,1.7,1.6,1.5,1.4,1.3,1.3,1.2,1.2,1.2],
+  cr:    [3.4,3.1,2.8,2.6,2.2,2.0,1.8,1.6,1.4,1.3,1.2,1.1,1.1,1.1],
+};
+const MARKS = [
+  { i:2,  a:'raise' }, { i:4, a:'raise' }, { i:6, a:'raise' }, { i:8, a:'raise' },
+  { i:9,  a:'lower' }, { i:10, a:'lower' }, { i:11, a:'lower' },
+];
+const DECISIONS = [
+  { t:'14:05', a:'hold',  why:'TACoS выше потолка, но лимит правок на сегодня исчерпан', from:32, to:32 },
+  { t:'12:00', a:'lower', why:'TACoS 24,5% выше потолка 18% — снижаем', from:34, to:32 },
+  { t:'09:00', a:'lower', why:'88 кликов без корзин — защитная отсечка', from:36, to:34 },
+  { t:'08:15', a:'hold',  why:'вне рабочего окна — ставка уже в минимуме', from:36, to:36 },
+  { t:'21:00', a:'raise', why:'cart-rate выше цели — поднимаем ставку', from:38, to:40 },
+];
+
+const NF = new Intl.NumberFormat('ru-RU');
+const fmt1 = n => n.toLocaleString('ru-RU', { minimumFractionDigits:1, maximumFractionDigits:1 });
+const health = t => t < 10 ? 'good' : t < 18 ? 'warn' : 'crit';
+
+// ---------------------------------------------------------------- спарклайн
+function sparkline(vals, w = 84, h = 24) {
+  const pad = 3, min = Math.min(...vals), max = Math.max(...vals);
+  const span = (max - min) || 1;
+  const x = i => pad + i * (w - pad * 2) / (vals.length - 1);
+  const y = v => h - pad - (v - min) / span * (h - pad * 2);
+  const d = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+  const area = `${d} L${x(vals.length - 1).toFixed(1)} ${h - pad} L${x(0).toFixed(1)} ${h - pad} Z`;
+  const lx = x(vals.length - 1).toFixed(1), ly = y(vals[vals.length - 1]).toFixed(1);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <path d="${area}" fill="var(--band)"></path>
+    <path d="${d}" fill="none" stroke="var(--s-cpc)" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"></path>
+    <circle cx="${lx}" cy="${ly}" r="2.6" fill="var(--s-cpc)"
+            stroke="var(--surface)" stroke-width="1.5"></circle>
+  </svg>`;
+}
+
+// ---------------------------------------------------------------- график
+let tipId = 0;
+function lineChart(opts) {
+  const { series, labels, fmt, band, marks, height = 200 } = opts;
+  const W = 760, H = height, L = 46, R = 62, T = 18, B = 30;
+  const iw = W - L - R, ih = H - T - B;
+  const all = series.flatMap(s => s.data).concat(band ? [band[0], band[1]] : []);
+  let min = Math.min(...all), max = Math.max(...all);
+  const pad = (max - min) * 0.16 || 1;
+  min = Math.max(0, min - pad); max = max + pad;
+  const span = max - min;
+  const X = i => L + i * iw / (labels.length - 1);
+  const Y = v => T + ih - (v - min) / span * ih;
+
+  const ticks = [min, min + span / 2, max].map(v => Math.round(v * 10) / 10);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" preserveAspectRatio="xMidYMid meet">`;
+
+  if (band) {
+    svg += `<rect x="${L}" y="${Y(band[1]).toFixed(1)}" width="${iw}"
+            height="${(Y(band[0]) - Y(band[1])).toFixed(1)}" fill="var(--band)"></rect>`;
+    svg += `<text x="${L + 6}" y="${(Y(band[1]) - 5).toFixed(1)}" fill="var(--muted-ink)"
+            font-size="10.5" font-family="var(--sans)">целевой коридор ${band[0]}–${band[1]}%</text>`;
+  }
+  ticks.forEach(v => {
+    svg += `<line x1="${L}" y1="${Y(v).toFixed(1)}" x2="${L + iw}" y2="${Y(v).toFixed(1)}"
+            stroke="var(--grid)" stroke-width="1"></line>`;
+    svg += `<text x="${L - 9}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end"
+            fill="var(--muted-ink)" font-size="11" font-family="var(--sans)">${fmt(v)}</text>`;
+  });
+  svg += `<line x1="${L}" y1="${T + ih}" x2="${L + iw}" y2="${T + ih}"
+          stroke="var(--axis)" stroke-width="1"></line>`;
+  [0, Math.floor(labels.length / 2), labels.length - 1].forEach(i => {
+    svg += `<text x="${X(i).toFixed(1)}" y="${H - 9}" text-anchor="${i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle'}"
+            fill="var(--muted-ink)" font-size="11" font-family="var(--sans)">${labels[i]}</text>`;
+  });
+
+  series.forEach(s => {
+    const d = s.data.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"></path>`;
+    const last = s.data.length - 1;
+    svg += `<circle cx="${X(last).toFixed(1)}" cy="${Y(s.data[last]).toFixed(1)}" r="3.4"
+            fill="${s.color}" stroke="var(--surface)" stroke-width="2"></circle>`;
+    svg += `<text x="${X(last) + 9}" y="${(Y(s.data[last]) + 4).toFixed(1)}" fill="${s.color}"
+            font-size="11.5" font-weight="600" font-family="var(--sans)">${fmt(s.data[last])}</text>`;
+  });
+
+  if (marks) {
+    marks.forEach(m => {
+      const v = series[0].data[m.i], up = m.a === 'raise';
+      const cy = Y(v) - 13;
+      svg += `<path d="M${X(m.i).toFixed(1)} ${(cy - 4).toFixed(1)} l4.2 5 l-8.4 0 Z"
+              transform="${up ? '' : `rotate(180 ${X(m.i).toFixed(1)} ${(cy - 1.5).toFixed(1)})`}"
+              fill="${up ? 'var(--good)' : 'var(--crit)'}"
+              stroke="var(--surface)" stroke-width="1.4" stroke-linejoin="round"></path>`;
+    });
+  }
+
+  const id = 'tip' + (++tipId);
+  svg += `<g class="hover-layer" data-tip="${id}">`;
+  svg += `<line class="cross" x1="0" y1="${T}" x2="0" y2="${T + ih}"
+          stroke="var(--axis)" stroke-width="1" opacity="0"></line>`;
+  labels.forEach((_, i) => {
+    svg += `<rect x="${(X(i) - iw / (labels.length - 1) / 2).toFixed(1)}" y="${T}"
+            width="${(iw / (labels.length - 1)).toFixed(1)}" height="${ih}"
+            fill="transparent" data-i="${i}" data-x="${X(i).toFixed(1)}"></rect>`;
+  });
+  svg += `</g></svg>`;
+
+  return { svg, id, W,
+    rows: i => series.map(s => `<span class="k">${s.name}</span> <b>${fmt(s.data[i])}</b>`).join('<br>'),
+    labels };
+}
+
+function mountChart(host, chart) {
+  host.innerHTML = chart.svg + `<div class="tip" id="${chart.id}"></div>`;
+  const svg = host.querySelector('svg');
+  const tip = host.querySelector('.tip');
+  const cross = svg.querySelector('.cross');
+  svg.querySelectorAll('.hover-layer rect').forEach(r => {
+    r.addEventListener('mouseenter', () => {
+      const i = +r.dataset.i, x = +r.dataset.x;
+      cross.setAttribute('x1', x); cross.setAttribute('x2', x);
+      cross.setAttribute('opacity', '1');
+      tip.innerHTML = `<b>${chart.labels[i]}</b><br>${chart.rows(i)}`;
+      tip.style.opacity = '1';
+      const px = (x / chart.W) * host.clientWidth;
+      tip.style.left = Math.min(Math.max(px - 50, 4), host.clientWidth - 150) + 'px';
+      tip.style.top = '6px';
+    });
+  });
+  svg.addEventListener('mouseleave', () => {
+    cross.setAttribute('opacity', '0'); tip.style.opacity = '0';
+  });
+}
+
+// ---------------------------------------------------------------- список
+const list = document.getElementById('list');
+
+PRODUCTS.forEach((p, idx) => {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.setAttribute('role', 'button');
+  row.tabIndex = 0;
+  row.setAttribute('aria-expanded', 'false');
+  row.innerHTML = `
+    <span class="pname">
+      <span class="chev" aria-hidden="true">▶</span>
+      <span class="pname-txt">
+        <strong>${p.name}</strong>
+        <span>${p.code} · ${p.camp}</span>
+      </span>
+    </span>
+    <span class="hide-sm">${sparkline(p.bidSeries)}</span>
+    <span class="num hide-sm">${p.bid} <span class="unit">₸</span></span>
+    <span class="num"><span class="tag ${health(p.tacos)}">${fmt1(p.tacos)}%</span></span>
+    <span class="num dim hide-sm">${fmt1(p.ctr)}%</span>
+    <span class="num dim hide-sm">${fmt1(p.roas)}×</span>
+    <span></span>`;
+
+  const sw = document.createElement('label');
+  sw.className = 'switch';
+  sw.title = p.on ? 'Биддер ведёт товар' : 'Биддер выключен';
+  sw.innerHTML = `<input type="checkbox" ${p.on ? 'checked' : ''}
+     aria-label="Биддер для «${p.name}»"><span class="track"></span><span class="knob"></span>`;
+  sw.addEventListener('click', e => e.stopPropagation());
+  row.lastElementChild.replaceWith(sw);
+
+  list.appendChild(row);
+
+  if (idx === 2) {                       // Gillette раскрыт по умолчанию
+    row.setAttribute('aria-expanded', 'true');
+    const det = document.createElement('div');
+    det.className = 'detail';
+    det.innerHTML = detailHTML();
+    list.appendChild(det);
+    row.addEventListener('click', () => {
+      const open = row.getAttribute('aria-expanded') === 'true';
+      row.setAttribute('aria-expanded', String(!open));
+      det.hidden = open;
+    });
+    wireDetail(det);
+  }
+});
+
+function detailHTML() {
+  return `
+  <div class="detail-top">
+    <div class="segmented" role="tablist">
+      <button type="button" role="tab" aria-pressed="true"  data-tab="charts">Графики</button>
+      <button type="button" role="tab" aria-pressed="false" data-tab="settings">Настройки</button>
+      <button type="button" role="tab" aria-pressed="false" data-tab="dec">Решения</button>
+    </div>
+    <button class="btn btn-primary" type="button">Разобрать с ИИ</button>
+  </div>
+
+  <div class="tabpanel" data-panel="charts">
+    <div class="charts">
+      <div class="chart-card">
+        <div class="chart-head">
+          <span class="chart-title">Ставка и цена клика</span>
+          <span class="chart-sub">₸ · треугольники — правки биддера</span>
+          <span class="legend">
+            <span><i style="background:var(--s-bid)"></i>Ставка</span>
+            <span><i style="background:var(--s-cpc)"></i>Цена клика</span>
+          </span>
+        </div>
+        <div class="chart-wrap" id="c-bid"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-head">
+          <span class="chart-title">TACoS</span>
+          <span class="chart-sub">% от выручки · девять дней подряд выше потолка</span>
+        </div>
+        <div class="chart-wrap" id="c-tacos"></div>
+      </div>
+
+      <div class="small-mults">
+        <div class="chart-card">
+          <div class="chart-head"><span class="chart-title">CTR</span>
+            <span class="chart-sub">% показов</span></div>
+          <div class="chart-wrap" id="c-ctr"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head"><span class="chart-title">Конверсия в корзину</span>
+            <span class="chart-sub">% кликов</span></div>
+          <div class="chart-wrap" id="c-cr"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ai">
+      <div class="ai-head">
+        <span class="ai-mark" aria-hidden="true">AI</span>
+        <span class="t">Разбор товара</span>
+        <span class="when">сегодня 14:05 · из кэша</span>
+      </div>
+      <p>
+        Ставку поднимали четыре раза подряд с 32 до 40 ₸ — цена клика послушно выросла
+        до 29 ₸, а <strong>корзина за 14 дней ровно одна</strong>. CTR за это время упал
+        с 2,1% до 1,2%: людям всё меньше интересна карточка в выдаче, и доплата за позицию
+        проблему не решает.
+      </p>
+      <p>
+        Дальше снижать ставку почти бессмысленно — при CR 1,1% товар не окупится
+        и на минимальной. Проверьте цену против конкурентов и главное фото карточки.
+      </p>
+      <div class="ai-acts">
+        <div class="ai-sug">Выключить бота на этом товаре <button class="btn" type="button">Применить</button></div>
+        <div class="ai-sug">Поставить <code>min_clicks_for_no_cart_cut</code> = 40 <button class="btn" type="button">Применить</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabpanel" data-panel="settings" hidden>
+    <div class="fields">
+      ${field('Потолок ставки', 'выше движок не поднимет', '40', '₸', false)}
+      ${field('Минимальная ставка', 'используется вместо паузы', '12', '₸', true)}
+      ${field('TACoS — верхняя граница', 'выше неё реклама не окупается', '0.18', '', true)}
+      ${field('TACoS — нижняя граница', 'ниже неё ставка считается заниженной', '0.08', '', true)}
+      ${field('Мин. кликов для отсечки без корзин', 'клики есть, корзин нет — срезать ставку', '60', '', false)}
+      ${field('Макс. изменений ставки в сутки', 'ограничение числа правок', '6', '', true)}
+    </div>
+    <div class="detail-top" style="margin:18px 0 0">
+      <div style="font-size:13px;color:var(--ink-2)">
+        Рабочее окно <b style="color:var(--ink)">09:00 – 23:00</b>, будни и выходные.
+        Вне окна ставка уходит в минимум.
+      </div>
+      <button class="btn btn-primary" type="button">Сохранить</button>
+    </div>
+  </div>
+
+  <div class="tabpanel" data-panel="dec" hidden>
+    <div class="dec">
+      ${DECISIONS.map(d => `
+        <div class="dec-row">
+          <span class="dec-time">${d.t}</span>
+          <span><span class="act ${d.a}">${
+            d.a === 'raise' ? '↑ Повышение' : d.a === 'lower' ? '↓ Снижение' : '— Без правки'
+          }</span></span>
+          <span class="dec-why">${d.why}</span>
+          <span class="dec-bid">${d.from} → <b>${d.to} ₸</b></span>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function field(label, hint, val, unit, inherited) {
+  return `<div class="field">
+    <span class="field-label">${label}${unit ? `, ${unit}` : ''}<small>${hint}</small></span>
+    <input type="number" value="${val}" ${inherited ? 'disabled' : ''}>
+    <span class="inh">
+      <span>наследовать</span>
+      <label class="switch sm">
+        <input type="checkbox" ${inherited ? 'checked' : ''} aria-label="Наследовать ${label}">
+        <span class="track"></span><span class="knob"></span>
+      </label>
+    </span>
+  </div>`;
+}
+
+function wireDetail(det) {
+  const tabs = det.querySelectorAll('[data-tab]');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-pressed', String(x === t)));
+    det.querySelectorAll('[data-panel]').forEach(p => {
+      p.hidden = p.dataset.panel !== t.dataset.tab;
+    });
+  }));
+
+  det.querySelectorAll('.field .switch.sm input').forEach(cb => {
+    cb.addEventListener('change', () => {
+      cb.closest('.field').querySelector('input[type="number"]').disabled = cb.checked;
+    });
+  });
+
+  mountChart(det.querySelector('#c-bid'), lineChart({
+    labels: DAYS, marks: MARKS, height: 210,
+    fmt: v => fmt1(v),
+    series: [
+      { name: 'Ставка',      data: SERIES.bid, color: 'var(--s-bid)' },
+      { name: 'Цена клика',  data: SERIES.cpc, color: 'var(--s-cpc)' },
+    ],
+  }));
+
+  mountChart(det.querySelector('#c-tacos'), lineChart({
+    labels: DAYS, band: [8, 18], height: 190,
+    fmt: v => fmt1(v) + '%',
+    series: [{ name: 'TACoS', data: SERIES.tacos, color: 'var(--s-tacos)' }],
+  }));
+
+  mountChart(det.querySelector('#c-ctr'), lineChart({
+    labels: DAYS, height: 150, fmt: v => fmt1(v) + '%',
+    series: [{ name: 'CTR', data: SERIES.ctr, color: 'var(--s-ctr)' }],
+  }));
+
+  mountChart(det.querySelector('#c-cr'), lineChart({
+    labels: DAYS, height: 150, fmt: v => fmt1(v) + '%',
+    series: [{ name: 'В корзину', data: SERIES.cr, color: 'var(--s-cr)' }],
+  }));
+}
+</script>
