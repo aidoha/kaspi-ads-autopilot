@@ -6,7 +6,8 @@ store.py — SQLite-персистенция воркера (stdlib sqlite3, б�
   revenue_cache     — кэш выручки по merchant_sku (тяжёлый обход Shop API реже тика);
   decisions_log     — полный аудит каждого решения с причиной;
   tacos_daily       — суточный TACoS по SKU (для аналитика/графиков);
-  metrics_daily     — подневные метрики товара (CTR/CR/ROAS для графиков).
+  metrics_daily     — подневные метрики товара (CTR/CR/ROAS для графиков);
+  ai_insights       — разборы LLM-аналитика (кэш + счётчик расхода).
 
 Один коннект на процесс (check_same_thread=False) — воркер маленький, тик и
 цикл выручки не пишут одновременно в один SKU. Записи снапшота/решений — append.
@@ -134,6 +135,23 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS ix_metrics_sku_day
                 ON metrics_daily(sku, day);
+
+            -- Разборы аналитика. Ключ (kind, scope_id, day) — один разбор на
+            -- товар в день; повторный вызов перезаписывает текст, но
+            -- инкрементит calls: за пересчёт уже заплачено, и лимит расхода
+            -- обязан его видеть.
+            CREATE TABLE IF NOT EXISTS ai_insights (
+                kind       TEXT,
+                scope_id   TEXT,
+                day        TEXT,
+                ts         INTEGER,
+                text       TEXT,
+                model      TEXT,
+                tokens_in  INTEGER,
+                tokens_out INTEGER,
+                calls      INTEGER DEFAULT 1,
+                PRIMARY KEY (kind, scope_id, day)
+            );
         """)
         # Позиционный трекер удалён: с датацентрового IP Kaspi отдавал 429, на
         # VPS таблица не наполнялась. Сносим явно, иначе она вечно висит в
@@ -555,4 +573,39 @@ class Store:
             "SELECT * FROM metrics_daily WHERE day=? ORDER BY sku", (day,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- разборы аналитика -------------------------------------------------
+
+    def put_ai_insight(self, kind: str, scope_id: str, day: str, ts: int,
+                       text: str, model: str, tokens_in: int,
+                       tokens_out: int) -> None:
+        """kind: 'product' (scope_id = sku) либо 'daily' (scope_id = '')."""
+        self._conn.execute(
+            """INSERT INTO ai_insights
+               (kind, scope_id, day, ts, text, model, tokens_in, tokens_out, calls)
+               VALUES (?,?,?,?,?,?,?,?,1)
+               ON CONFLICT(kind, scope_id, day) DO UPDATE SET
+                 ts=excluded.ts, text=excluded.text, model=excluded.model,
+                 tokens_in=excluded.tokens_in, tokens_out=excluded.tokens_out,
+                 calls=ai_insights.calls + 1""",
+            (kind, scope_id, day, ts, text, model, tokens_in, tokens_out),
+        )
+        self._conn.commit()
+
+    def get_ai_insight(self, kind: str, scope_id: str, day: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM ai_insights WHERE kind=? AND scope_id=? AND day=?",
+            (kind, scope_id, day),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def count_ai_calls(self, day: str) -> int:
+        """Сколько платных вызовов сделано за день — предохранитель
+        AI_DAILY_LIMIT. Считаем сумму calls, а не число строк: иначе
+        принудительные пересчёты одного товара были бы бесплатны для лимита."""
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(calls), 0) AS n FROM ai_insights WHERE day=?",
+            (day,),
+        ).fetchone()
+        return row["n"]
 

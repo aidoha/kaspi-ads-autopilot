@@ -431,6 +431,43 @@ def test_metrics_series_ascending_and_limited():
     print("✓ ряд metrics_daily отсортирован и ограничен по товару")
 
 
+def test_ai_insight_roundtrip_and_overwrite():
+    s = new_store()
+    s.put_ai_insight(kind="product", scope_id="166350902", day="2026-09-12",
+                     ts=100, text="первый разбор", model="claude-opus-5",
+                     tokens_in=4000, tokens_out=1800)
+    got = s.get_ai_insight("product", "166350902", "2026-09-12")
+    assert got["text"] == "первый разбор", got
+    assert got["model"] == "claude-opus-5" and got["tokens_in"] == 4000, got
+
+    s.put_ai_insight(kind="product", scope_id="166350902", day="2026-09-12",
+                     ts=200, text="пересчитали", model="claude-opus-5",
+                     tokens_in=4200, tokens_out=1900)
+    got = s.get_ai_insight("product", "166350902", "2026-09-12")
+    assert got["text"] == "пересчитали" and got["ts"] == 200, got
+
+    assert s.get_ai_insight("product", "нет-такого", "2026-09-12") is None
+    print("✓ ai_insights: запись, перезапись, промах")
+
+
+def test_count_ai_calls_counts_forced_recomputes():
+    """Лимит расхода должен видеть принудительные пересчёты, иначе протекает:
+    force перезаписывает строку, а деньги за вызов уже заплачены."""
+    s = new_store()
+    for ts in (1, 2, 3):
+        s.put_ai_insight(kind="product", scope_id="s1", day="2026-09-12",
+                         ts=ts, text="x", model="m", tokens_in=1, tokens_out=1)
+    s.put_ai_insight(kind="daily", scope_id="", day="2026-09-12",
+                     ts=4, text="y", model="m", tokens_in=1, tokens_out=1)
+    s.put_ai_insight(kind="product", scope_id="s1", day="2026-09-13",
+                     ts=5, text="z", model="m", tokens_in=1, tokens_out=1)
+
+    assert s.count_ai_calls("2026-09-12") == 4, s.count_ai_calls("2026-09-12")
+    assert s.count_ai_calls("2026-09-13") == 1
+    assert s.count_ai_calls("2026-01-01") == 0
+    print("✓ count_ai_calls считает вызовы, а не строки")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -454,5 +491,7 @@ if __name__ == "__main__":
     test_metrics_daily_upsert_overwrites_same_day()
     test_metrics_daily_null_only_when_denominator_is_zero()
     test_metrics_series_ascending_and_limited()
+    test_ai_insight_roundtrip_and_overwrite()
+    test_count_ai_calls_counts_forced_recomputes()
     print("-" * 60)
     print("✓ Все проверки store прошли")
