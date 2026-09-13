@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { apiSend, ApiError } from "../../api/client";
-import Switch from "../../components/Switch";
 import { FIELD_META, OVERRIDABLE_FIELDS, WEEKDAYS, type FieldName } from "./fieldMeta";
 import { buildSettingsPayload, type FieldFormState } from "./settingsPayload";
 import type { Preview, PreviewLoop, ProductControl, ProductDetail } from "./types";
@@ -80,8 +79,11 @@ export default function SettingsTab({ campaignId, sku, detail, onSaved }: Props)
     setControlErrors([]);
     setSavingControl(true);
     try {
+      // НЕ шлём enabled: этим флагом владеет тоггл в строке товара (см.
+      // ProductsScreen.handleToggle) — единственный источник, иначе два
+      // переключателя одного флага расходятся при первом же сохранении с
+      // другой стороны. Сервер сам сохранит текущее значение enabled.
       await apiSend("PUT", `/api/products/${campaignId}/${sku}/control`, {
-        enabled: control.enabled,
         window_start: control.window_start,
         window_end: control.window_end,
         days_mask: control.days_mask,
@@ -171,17 +173,11 @@ export default function SettingsTab({ campaignId, sku, detail, onSaved }: Props)
           </div>
         )}
         <div className="sched">
-          <div className="sched-row">
-            <span className="field-label">
-              Биддер активен для товара
-              <small>Вне окна биддер ставит ставку в минимум — реклама не выключается.</small>
-            </span>
-            <Switch
-              checked={control.enabled}
-              onChange={(v) => setControl((c) => ({ ...c, enabled: v }))}
-              label="Биддер активен для товара"
-            />
-          </div>
+          <p className="preview-note">
+            Включение и выключение биддера для товара — тоггл в строке
+            товара в списке, а не здесь. Здесь — только рабочее окно и дни
+            недели.
+          </p>
           <div className="sched-row">
             <span className="field-label">Рабочее окно (Алматы)</span>
             <span className="sched-window">

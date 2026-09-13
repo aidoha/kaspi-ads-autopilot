@@ -8,6 +8,10 @@
 
 - Linux (Ubuntu 22.04/24.04 или Debian 12), **≥1 ГБ RAM** (нужен headless Chromium).
 - Python 3.10+ (подойдёт и 3.9). `git`.
+- **Node.js ≥ 20.19 (LTS) либо ≥ 22.12** — нужен для сборки веб-панели
+  (`frontend/`, vite 8 требует именно эту минимальную версию; актуально
+  проверено на 22.16.0). Без него `npm ci && npm run build` из §2/§9/§10.4
+  не выполнится.
 - Исходящий доступ в интернет (kaspi.kz, marketing.kaspi.kz). SSH-доступ к серверу.
 
 > IP-нюанс: WAF Kaspi режет запросы без браузерного `User-Agent` — это уже
@@ -37,6 +41,22 @@ exit                                           # выйти из-под kaspi д
 
 # системные библиотеки для Chromium (apt-пакеты) — под root:
 sudo /opt/kaspi-ads-autopilot/.venv/bin/playwright install-deps chromium
+```
+
+Node.js (для сборки веб-панели, см. §0) — ставим под root через NodeSource,
+затем собираем фронт под пользователем `kaspi`:
+
+```bash
+# под root — репозиторий NodeSource для актуального LTS (22.x):
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+node -v   # должно быть ≥ 20.19 либо ≥ 22.12 — см. §0
+
+sudo -iu kaspi
+cd /opt/kaspi-ads-autopilot/frontend
+npm ci
+npm run build          # пишет в ../webui/static/dist
+exit
 ```
 
 ## 3. Конфиг `config/.env`
@@ -148,25 +168,33 @@ sudo systemctl restart kaspi-autopilot
 ## 9. Обслуживание
 
 - **Логи:** `journalctl -u kaspi-autopilot -f` (или `--since "1 hour ago"`).
-- **Обновление кода:**
-  ```bash
-  # снять копию БД перед обновлением — схема иногда меняется, откат должен быть простым
-  sudo -iu kaspi cp /opt/kaspi-ads-autopilot/db/autopilot.db \
-    /opt/kaspi-ads-autopilot/db/autopilot.db.bak-$(date +%F)
-  sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot && git pull && .venv/bin/pip install -r requirements.txt'
-  sudo systemctl restart kaspi-autopilot
-  ```
-- **Обновление веб-панели (React):** панель — собранный фронт
+- **Обновление кода.** Порядок важен и не переставляется: сначала тянем код,
+  потом собираем то, что из него собирается (фронт), и только ПОСЛЕ этого
+  перезапускаем сервисы, которые это отдают. Панель — собранный фронт
   (`webui/static/dist/`), который `webui/app.py` отдаёт как SPA; `git pull`
   тянет только исходники, `dist/` в `.gitignore` и не собирается
-  автоматически (CI-сборка — отдельная будущая часть плана). Поэтому перед
-  рестартом `kaspi-webui` фронт нужно пересобрать вручную:
+  автоматически (CI-сборка — отдельная будущая часть плана). Рестарт
+  `kaspi-webui` ДО пересборки оставит панель на старом `dist/` (или, если
+  `dist/` вообще нет, покажет «Фронт не собран») — сборка обязана пройти
+  первой.
   ```bash
+  # 1. снять копию БД перед обновлением — схема иногда меняется, откат должен быть простым
+  sudo -iu kaspi cp /opt/kaspi-ads-autopilot/db/autopilot.db \
+    /opt/kaspi-ads-autopilot/db/autopilot.db.bak-$(date +%F)
+
+  # 2. код + бэкенд-зависимости
+  sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot && git pull && .venv/bin/pip install -r requirements.txt'
+
+  # 3. фронт — пересобрать ДО рестарта kaspi-webui (см. §0/§2 про Node.js)
   sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot/frontend && npm ci && npm run build'
+
+  # 4. рестарт — теперь, когда и код, и сборка на месте
+  sudo systemctl restart kaspi-autopilot
   sudo systemctl restart kaspi-webui
+
+  # 5. проверка: панель должна ответить 200, а не 503 («Фронт не собран»)
+  curl -sI https://<домен>/ | head -1
   ```
-  Без этого шага после `git pull` `webui/app.py` продолжит отдавать старую
-  собранную панель (или, если `dist/` вообще нет, страницу «Фронт не собран»).
 - **БД** `db/autopilot.db` (SQLite) — лог решений/выручки/TACoS; схема
   мигрируется автоматически при старте. Бэкапить по желанию.
 - **Сессия** `storage_state.json` обновляется сама (по таймстампу и через
@@ -238,9 +266,20 @@ UI_PASSWORD_HASH=<вывод hash_password>
 UI_SECRET_KEY=<вывод token_hex>
 ```
 
-### 10.4. Установить systemd-юнит
+### 10.4. Собрать фронт и установить systemd-юнит
+
+`kaspi-webui` отдаёт собранный фронт (`webui/static/dist/`); если каталога
+нет (или в нём нет `assets/`), панель поднимется и ответит понятной страницей
+«Фронт не собран» вместо падения — но включать сервис до сборки всё равно не
+нужно: владелец на первом же заходе увидит эту страницу вместо панели.
+Сборка уже могла пройти в §2 (клон и зависимости) — тогда шаг ниже просто
+ничего не изменит; если пропустил его или дошёл до этого раздела отдельно —
+собери сейчас:
 
 ```bash
+# фронт — ДО включения сервиса (нужен Node.js, см. §0/§2)
+sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot/frontend && npm ci && npm run build'
+
 sudo cp /opt/kaspi-ads-autopilot/deploy/kaspi-webui.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now kaspi-webui

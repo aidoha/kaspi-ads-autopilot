@@ -22,17 +22,18 @@ log = logging.getLogger("webui")
 _HERE = os.path.dirname(__file__)
 ALMATY = ZoneInfo("Asia/Almaty")
 
-# Кэш бюджетов кампаний на модульном уровне: дашборд может открываться часто,
-# а бюджеты живут в кабинете (Playwright-логин, PUT-чувствительная сессия) —
-# не хотим долбить его на каждый рендер и конфликтовать с воркером за сессию.
+# Кэш бюджетов кампаний на модульном уровне: панель (/api/overview) может
+# открываться часто, а бюджеты живут в кабинете (Playwright-логин,
+# PUT-чувствительная сессия) — не хотим долбить его на каждый запрос и
+# конфликтовать с воркером за сессию.
 _BUDGET_CACHE_TTL = 60.0
 _budget_cache: dict = {"ts": 0.0, "budgets": {}}
 
 
 def _get_campaign_budgets() -> dict:
     """Бюджеты активных кампаний кабинета — best-effort. Любая проблема (нет
-    storage_state, нет кредов, кабинет недоступен) молча гасится: дашборд
-    рендерится без бюджетов, а не падает 500-й. Кэш на ~60с."""
+    storage_state, нет кредов, кабинет недоступен) молча гасится: ответ
+    отдаётся без бюджетов, а не падает 500-й. Кэш на ~60с."""
     now = time.time()
     if now - _budget_cache["ts"] < _BUDGET_CACHE_TTL:
         return _budget_cache["budgets"]
@@ -61,9 +62,9 @@ def _get_campaign_budgets() -> dict:
             finally:
                 marketing.close()
     except Exception as e:
-        # Best-effort: сессия кабинета недоступна/протухла/блокирована — дашборд
-        # не должен падать из-за этого, просто покажем без бюджетов.
-        log.warning("Бюджеты кампаний недоступны, показываю дашборд без них: %s", e)
+        # Best-effort: сессия кабинета недоступна/протухла/блокирована — ответ
+        # не должен падать из-за этого, просто отдадим без бюджетов.
+        log.warning("Бюджеты кампаний недоступны, показываю панель без них: %s", e)
         budgets = {}
 
     _budget_cache["ts"] = now
@@ -196,10 +197,21 @@ def create_app() -> FastAPI:
     # Отдача собранного фронта. Регистрируется ПОСЛЕДНЕЙ: фоллбек ловит всё,
     # что не разобрали роуты выше, и если повесить его раньше, он перехватит
     # и /api-роутеры.
-    _DIST = os.path.join(_HERE, "static", "dist")
-    if os.path.isdir(_DIST):
-        app.mount("/assets", StaticFiles(directory=os.path.join(_DIST, "assets")),
-                  name="spa-assets")
+    # Проверяем существование именно того каталога, который монтируем
+    # (dist/assets), а не dist/ целиком: vite собирает с emptyOutDir=true —
+    # сначала чистит каталог, потом пишет, — и оборванная (нехватка памяти,
+    # kill) сборка оставляет dist/ без assets/. Проверка isdir(dist) в этом
+    # случае не спасала бы: mount на несуществующий assets/ бросал бы
+    # RuntimeError при СТАРТЕ приложения, а под systemd с Restart=on-failure
+    # это вечный цикл перезапуска без единой понятной страницы.
+    # WEBUI_DIST_DIR — только для тестов (test_webui_spa.py): даёт каждому
+    # тесту свой временный каталог сборки, не завязываясь на то, собран ли
+    # фронт в рабочем дереве на диске. В бою переменная не задаётся, и путь —
+    # обычный webui/static/dist.
+    _DIST = os.environ.get("WEBUI_DIST_DIR") or os.path.join(_HERE, "static", "dist")
+    _ASSETS = os.path.join(_DIST, "assets")
+    if os.path.isdir(_ASSETS):
+        app.mount("/assets", StaticFiles(directory=_ASSETS), name="spa-assets")
 
     @app.get("/{full_path:path}", response_class=HTMLResponse)
     def spa(full_path: str):
@@ -219,7 +231,13 @@ def create_app() -> FastAPI:
                 "<h1>Фронт не собран</h1>"
                 "<p>Выполните <code>npm run build</code> в каталоге frontend.</p>",
                 status_code=503)
+        # no-store: имена ассетов хешированные и меняются при каждой
+        # пересборке, а index.html — нет. Закешированный браузером старый
+        # index.html после пересборки ссылался бы на уже удалённые
+        # /assets/... (404) — белый экран у владельца до ручной очистки кеша.
+        # Сами хешированные ассеты кешировать можно и нужно — их эта отдача
+        # не касается, StaticFiles выше отдаёт их со своими заголовками.
         with open(index, encoding="utf-8") as f:
-            return HTMLResponse(f.read())
+            return HTMLResponse(f.read(), headers={"Cache-Control": "no-store"})
 
     return app

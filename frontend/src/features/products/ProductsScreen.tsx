@@ -95,11 +95,19 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
         products: s.products.map((p) => (p.sku === product.sku ? { ...p, enabled } : p)),
       }));
     setEnabled(next);
-    const campaignId = product.campaign_ids[0];
     try {
+      // Товар может вестись в нескольких кампаниях одновременно (см.
+      // campaign_ids) — сервер считает enabled как any(...) по ним всем,
+      // поэтому тоггл обязан выключить биддера ВО ВСЕХ, а не только в
+      // первой. Иначе биддер продолжит управлять ставкой во второй
+      // кампании, а владелец будет считать товар остановленным.
+      //
       // Шлём ТОЛЬКО enabled — окно и дни недели API сохранит сам из текущих
       // значений. Досылать их «для полноты» нельзя: сотрёт расписание товара.
-      await apiSend("PUT", `/api/products/${campaignId}/${product.sku}/control`, { enabled: next });
+      await Promise.all(
+        product.campaign_ids.map((campaignId) =>
+          apiSend("PUT", `/api/products/${campaignId}/${product.sku}/control`, { enabled: next })),
+      );
       return null;
     } catch (err) {
       setEnabled(!next);
