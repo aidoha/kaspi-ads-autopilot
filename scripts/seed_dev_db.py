@@ -239,11 +239,25 @@ def main() -> None:
                 gmv = carts * p["price"]
 
                 revenue_known = not (p["sku"] == GILLETTE_SKU and i in UNKNOWN_REVENUE_DAYS)
-                if revenue_known:
-                    revenue = round(gmv * 0.92, 2)   # минус отмены, как в реальном Shop API
-                else:
+                if not revenue_known:
                     revenue = None
                     unknown_revenue += 1
+                elif p["sku"] == GILLETTE_SKU:
+                    # У Gillette расход — от РЕАЛЬНЫХ CPC (GILLETTE_CPC, дословно
+                    # из макета, растёт вместе со ставкой). Выручка отсюда же
+                    # подобрана так, чтобы TACoS = cost/revenue лёг ровно на
+                    # целевую кривую GILLETTE_TACOS (11%→26%), а не на carts×price:
+                    # при клика́х 5-9/день и CR из макета (1.1-3.4%) корзина
+                    # набирается раз в несколько дней, и revenue=carts×price был
+                    # бы известным нулём почти везде — TACoS обнулялся бы (ноль
+                    # в знаменателе — «не определено» по конвенции
+                    # upsert_metrics_daily) вместо кривой, ради которой этот
+                    # товар и задуман флаговым: следующая задача рисует график
+                    # TACoS с залитым целевым коридором, и только на этом товаре
+                    # видно, что линия его пересекает.
+                    revenue = round(cost / (s["tacos_pct"] / 100), 2)
+                else:
+                    revenue = round(gmv * 0.92, 2)   # минус отмены, как в реальном Shop API
 
                 store.upsert_metrics_daily(
                     day=day_str, campaign_id=p["campaign_id"], sku=p["sku"],
