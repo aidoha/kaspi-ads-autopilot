@@ -147,8 +147,9 @@ def build_router(ctx: ApiContext) -> APIRouter:
     def product_preview(campaign_id: str, sku: str,
                         user: str = Depends(require_user)):
         """Что биддер сделал бы с товаром прямо сейчас, ничего не отправляя.
-        Логика в core.preview — общая с Jinja-панелью, две копии одного и
-        того же решения по реальным деньгам разошлись бы при первой правке."""
+        Логика решения по реальным деньгам живёт в core.preview и вызывается
+        отсюда — единственная копия, чтобы правка решения не разошлась
+        с тем, что реально считает воркер."""
         from core.preview import preview_decision
         with open_store(ctx) as store:
             got = preview_decision(store, ctx.rules_path, campaign_id, sku,
