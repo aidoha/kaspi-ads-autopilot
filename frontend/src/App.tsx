@@ -1,35 +1,43 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend, ApiError } from "./api/client";
 import LoginScreen from "./features/auth/LoginScreen";
 
 type AuthState =
   | { kind: "loading" }
   | { kind: "anon" }
+  | { kind: "error"; message: string }
   | { kind: "user"; user: string };
 
 /** Оболочка приложения. На старте зовёт GET /api/me: 401 → экран входа,
- *  успех → главный экран (пока заглушка — следующие задачи достроят его). */
+ *  успех → главный экран (пока заглушка — следующие задачи достроят его).
+ *
+ *  401 и «сервер недоступен» — разные ситуации и не должны выглядеть
+ *  одинаково: упавший бэкенд не значит «вы не вошли», и владелец не должен
+ *  вводить верный пароль в ответ на сетевую ошибку, думая, что забыл его. */
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ kind: "loading" });
 
-  useEffect(() => {
-    let cancelled = false;
+  const checkMe = useCallback(() => {
+    setAuth({ kind: "loading" });
     apiGet<{ user: string }>("/api/me")
       .then((res) => {
-        if (!cancelled) setAuth({ kind: "user", user: res.user });
+        setAuth({ kind: "user", user: res.user });
       })
       .catch((err) => {
-        if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
           setAuth({ kind: "anon" });
+        } else if (err instanceof ApiError) {
+          setAuth({ kind: "error", message: err.errors.join(", ") });
         } else {
-          // Неожиданная ошибка (сеть, 5xx) — тоже показываем вход: у
-          // пользователя нет другого способа восстановить сессию.
-          setAuth({ kind: "anon" });
+          // fetch бросил до того, как дело дошло до ApiError — сеть недоступна.
+          setAuth({ kind: "error", message: "Панель не может связаться с сервером" });
         }
       });
-    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    checkMe();
+  }, [checkMe]);
 
   async function logout() {
     try {
@@ -43,6 +51,15 @@ export default function App() {
     return (
       <div style={{ padding: 48, textAlign: "center", color: "var(--ink-2)" }}>
         Загрузка…
+      </div>
+    );
+  }
+
+  if (auth.kind === "error") {
+    return (
+      <div style={{ padding: 48, textAlign: "center" }}>
+        <p style={{ color: "var(--crit)" }}>{auth.message}</p>
+        <button type="button" className="btn" onClick={checkMe}>Повторить</button>
       </div>
     );
   }

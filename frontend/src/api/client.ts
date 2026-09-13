@@ -1,6 +1,10 @@
 export class ApiError extends Error {
-  constructor(readonly status: number, readonly errors: string[]) {
+  status: number;
+  errors: string[];
+  constructor(status: number, errors: string[]) {
     super(errors[0] ?? `Ошибка ${status}`);
+    this.status = status;
+    this.errors = errors;
   }
 }
 
