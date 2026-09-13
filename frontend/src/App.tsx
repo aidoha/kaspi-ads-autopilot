@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend, ApiError } from "./api/client";
 import LoginScreen from "./features/auth/LoginScreen";
+import ProductsScreen from "./features/products/ProductsScreen";
 
 type AuthState =
   | { kind: "loading" }
@@ -9,7 +10,7 @@ type AuthState =
   | { kind: "user"; user: string };
 
 /** Оболочка приложения. На старте зовёт GET /api/me: 401 → экран входа,
- *  успех → главный экран (пока заглушка — следующие задачи достроят его).
+ *  успех → главный экран (список товаров, ProductsScreen).
  *
  *  401 и «сервер недоступен» — разные ситуации и не должны выглядеть
  *  одинаково: упавший бэкенд не значит «вы не вошли», и владелец не должен
@@ -68,12 +69,5 @@ export default function App() {
     return <LoginScreen onLoggedIn={(user) => setAuth({ kind: "user", user })} />;
   }
 
-  return (
-    <div style={{ padding: 24 }}>
-      <p>
-        Вы вошли как <strong>{auth.user}</strong>.
-      </p>
-      <button type="button" className="btn" onClick={logout}>Выйти</button>
-    </div>
-  );
+  return <ProductsScreen onLogout={logout} />;
 }
