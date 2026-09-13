@@ -561,6 +561,27 @@ def test_global_settings_reject_unknown_field():
     print("✓ api: глобальные настройки отвергают неизвестное поле")
 
 
+def test_global_settings_reject_min_bid_above_ceiling():
+    """Минимальная ставка выше потолка делает конфиг биддера противоречивым.
+    Проверка есть в core, но до этой задачи ни один тест не проходил её через
+    реальный запрос — а именно так её встретит панель.
+
+    Отдельно проверяем, что при отказе файл конфига НЕ переписан: иначе
+    невалидные пороги уехали бы к воркеру, который читает rules.yaml на лету."""
+    c, rules, _ = _logged_in()
+    before = open(rules, encoding="utf-8").read()
+
+    s = c.get("/api/settings").json()["settings"]
+    r = c.put("/api/settings",
+              json={"settings": {**s, "min_bid": 200, "bid_ceiling": 100}})
+    assert r.status_code == 400, (r.status_code, r.text)
+    assert r.json()["errors"], r.json()
+
+    assert open(rules, encoding="utf-8").read() == before, \
+        "конфиг переписан несмотря на отказ валидации"
+    print("✓ api: min_bid выше потолка отвергается и не переписывает конфиг")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -596,5 +617,6 @@ if __name__ == "__main__":
     test_products_list_shows_bid_from_the_freshest_snapshot()
     test_control_put_preserves_fields_that_were_not_sent()
     test_global_settings_reject_unknown_field()
+    test_global_settings_reject_min_bid_above_ceiling()
     print("-" * 60)
     print("✓ Все проверки API прошли")
