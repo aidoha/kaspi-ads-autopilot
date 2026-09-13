@@ -103,6 +103,10 @@ export default function ProductsScreen({ onLogout }: Props) {
 
   const enabledCount = products.filter((p) => p.enabled).length;
   const hasMultiCampaignProduct = products.some((p) => p.campaign_ids.length > 1);
+  // Не campaigns.length: тот список зависит от доступности кабинета Kaspi
+  // (budgets_available), а не от того, что реально показано в списке ниже.
+  // Считаем от фактической принадлежности товаров, иначе число M соврёт.
+  const campaignCount = new Set(products.flatMap((p) => p.campaign_ids)).size;
 
   return (
     <div>
@@ -142,7 +146,7 @@ export default function ProductsScreen({ onLogout }: Props) {
         <div className="pagehead">
           <h1>Товары</h1>
           <p className="sub">
-            {products.length} товаров в {campaigns.length} кампаниях · за последние <b>{overview.days} дней</b>
+            {products.length} товаров в {campaignCount} кампаниях · за последние <b>{overview.days} дней</b>
           </p>
         </div>
 

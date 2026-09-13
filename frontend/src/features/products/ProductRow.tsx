@@ -74,12 +74,16 @@ export default function ProductRow({ product, campaignLabel, onToggle }: Props) 
         </span>
         <span className="num dim hide-sm">{fmtPct(product.ctr)}</span>
         <span className="num dim hide-sm">{fmtX(product.roas)}</span>
-        <span onClick={(e) => e.stopPropagation()}>
+        <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <Switch
             checked={product.enabled}
             onChange={handleToggle}
             disabled={busy || product.campaign_ids.length === 0}
-            label={`Биддер для «${product.name ?? product.sku}»`}
+            label={
+              product.enabled
+                ? `Биддер ведёт «${product.name ?? product.sku}»`
+                : `Биддер выключен для «${product.name ?? product.sku}»`
+            }
           />
         </span>
       </div>
