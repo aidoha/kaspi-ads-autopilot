@@ -1,0 +1,125 @@
+# Сборка, тесты и автовыкат на боевой VPS.
+#
+# Зачем: собранный фронт (webui/static/dist) в .gitignore и на сервер через
+# git не попадает. Раньше его собирали прямо на VPS — ради этого там держали
+# Node. Теперь сборка живёт здесь, а на сервер уезжает готовый каталог.
+#
+# Джоба test гоняется на каждый push и PR. Джоба deploy — только на push в
+# master и только после зелёных тестов.
+name: CI и выкат
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    name: Тесты и сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.12 — ровно как на VPS. Разработка идёт на Mac с 3.9, и незапиненный
+      # requirements.txt однажды уже дал разъезд версий, который был зелёным
+      # на Mac и ронял панель 500-й на сервере. Пусть CI стоит на боевой версии.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Зависимости бэкенда
+        run: pip install -r requirements.txt
+
+      # Тесты — обычные скрипты с ассертами, не pytest: запускаем каждый и
+      # падаем на первом красном (set -e + явный прогон по списку).
+      - name: Бэкенд-тесты
+        run: |
+          set -euo pipefail
+          for t in test_*.py; do
+            echo "── $t"
+            python "$t"
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Зависимости фронта
+        run: npm ci
+        working-directory: frontend
+
+      - name: Линт фронта
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Тесты фронта
+        run: npm test
+        working-directory: frontend
+
+      - name: Сборка фронта
+        run: npm run build
+        working-directory: frontend
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webui-dist
+          path: webui/static/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy:
+    name: Выкат на VPS
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    # Два пуша подряд не должны раскатываться внахлёст: второй ждёт первого.
+    # cancel-in-progress:false — отменённый на середине выкат оставил бы
+    # сервер в непонятном состоянии.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: webui-dist
+          path: dist
+
+      - name: SSH-ключ и known_hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Хост сверяем по заранее записанному отпечатку, а не отключаем
+          # проверку: ключ от боевого сервера не должен уезжать первому
+          # встречному, кто перехватит соединение.
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Кладём сборку РЯДОМ с живой (dist.new), а не поверх неё: подменим
+      # одним mv уже на сервере, чтобы панель ни секунды не отдавала
+      # полусобранный каталог.
+      - name: Залить сборку в dist.new
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          rsync -az --delete -e 'ssh -i ~/.ssh/id_deploy' \
+            dist/ "$VPS_USER@$VPS_HOST:/opt/kaspi-ads-autopilot/webui/static/dist.new/"
+
+      - name: Обновить код и перезапустить сервисы
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" 'bash -s' < deploy/remote_update.sh

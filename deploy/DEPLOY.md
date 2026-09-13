@@ -8,10 +8,8 @@
 
 - Linux (Ubuntu 22.04/24.04 или Debian 12), **≥1 ГБ RAM** (нужен headless Chromium).
 - Python 3.10+ (подойдёт и 3.9). `git`.
-- **Node.js ≥ 20.19 (LTS) либо ≥ 22.12** — нужен для сборки веб-панели
-  (`frontend/`, vite 8 требует именно эту минимальную версию; актуально
-  проверено на 22.16.0). Без него `npm ci && npm run build` из §2/§9/§10.4
-  не выполнится.
+- **Node.js на сервере НЕ нужен.** Веб-панель собирается в GitHub Actions и
+  приезжает на VPS готовым каталогом `webui/static/dist/` — см. §11.
 - Исходящий доступ в интернет (kaspi.kz, marketing.kaspi.kz). SSH-доступ к серверу.
 
 > IP-нюанс: WAF Kaspi режет запросы без браузерного `User-Agent` — это уже
@@ -43,21 +41,9 @@ exit                                           # выйти из-под kaspi д
 sudo /opt/kaspi-ads-autopilot/.venv/bin/playwright install-deps chromium
 ```
 
-Node.js (для сборки веб-панели, см. §0) — ставим под root через NodeSource,
-затем собираем фронт под пользователем `kaspi`:
-
-```bash
-# под root — репозиторий NodeSource для актуального LTS (22.x):
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-node -v   # должно быть ≥ 20.19 либо ≥ 22.12 — см. §0
-
-sudo -iu kaspi
-cd /opt/kaspi-ads-autopilot/frontend
-npm ci
-npm run build          # пишет в ../webui/static/dist
-exit
-```
+Фронт на сервере не собираем: `webui/static/dist/` привезёт первый прогон
+автовыката (§11). До него панель поднимется и ответит страницей «Фронт не
+собран» — это ожидаемо и лечится одним прогоном workflow.
 
 ## 3. Конфиг `config/.env`
 
@@ -168,33 +154,21 @@ sudo systemctl restart kaspi-autopilot
 ## 9. Обслуживание
 
 - **Логи:** `journalctl -u kaspi-autopilot -f` (или `--since "1 hour ago"`).
-- **Обновление кода.** Порядок важен и не переставляется: сначала тянем код,
-  потом собираем то, что из него собирается (фронт), и только ПОСЛЕ этого
-  перезапускаем сервисы, которые это отдают. Панель — собранный фронт
-  (`webui/static/dist/`), который `webui/app.py` отдаёт как SPA; `git pull`
-  тянет только исходники, `dist/` в `.gitignore` и не собирается
-  автоматически (CI-сборка — отдельная будущая часть плана). Рестарт
-  `kaspi-webui` ДО пересборки оставит панель на старом `dist/` (или, если
-  `dist/` вообще нет, покажет «Фронт не собран») — сборка обязана пройти
-  первой.
+- **Обновление кода — руками больше не делается.** Push в `master` → GitHub
+  Actions гоняет тесты, собирает фронт и сам раскатывает всё на VPS (§11).
+  Ручной вариант нужен только если Actions недоступен; тогда выполни на
+  сервере ту же последовательность, что и CI, — она лежит в репозитории
+  одним файлом:
   ```bash
-  # 1. снять копию БД перед обновлением — схема иногда меняется, откат должен быть простым
-  sudo -iu kaspi cp /opt/kaspi-ads-autopilot/db/autopilot.db \
-    /opt/kaspi-ads-autopilot/db/autopilot.db.bak-$(date +%F)
-
-  # 2. код + бэкенд-зависимости
-  sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot && git pull && .venv/bin/pip install -r requirements.txt'
-
-  # 3. фронт — пересобрать ДО рестарта kaspi-webui (см. §0/§2 про Node.js)
-  sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot/frontend && npm ci && npm run build'
-
-  # 4. рестарт — теперь, когда и код, и сборка на месте
-  sudo systemctl restart kaspi-autopilot
-  sudo systemctl restart kaspi-webui
-
-  # 5. проверка: панель должна ответить 200, а не 503 («Фронт не собран»)
-  curl -sI https://<домен>/ | head -1
+  # фронт придётся собрать на любой машине с Node 22 и залить в dist.new:
+  #   (на Mac) cd frontend && npm ci && npm run build
+  #   rsync -az --delete webui/static/dist/ root@<vps>:/opt/kaspi-ads-autopilot/webui/static/dist.new/
+  sudo bash /opt/kaspi-ads-autopilot/deploy/remote_update.sh
   ```
+  Скрипт сам снимет копию БД, сделает `git pull --ff-only`, обновит
+  зависимости, атомарно подменит фронт, перезапустит оба сервиса и проверит,
+  что панель отвечает 200. Любая осечка до подмены фронта означает, что прод
+  не тронут вовсе.
 - **БД** `db/autopilot.db` (SQLite) — лог решений/выручки/TACoS; схема
   мигрируется автоматически при старте. Бэкапить по желанию.
 - **Сессия** `storage_state.json` обновляется сама (по таймстампу и через
@@ -272,14 +246,10 @@ UI_SECRET_KEY=<вывод token_hex>
 нет (или в нём нет `assets/`), панель поднимется и ответит понятной страницей
 «Фронт не собран» вместо падения — но включать сервис до сборки всё равно не
 нужно: владелец на первом же заходе увидит эту страницу вместо панели.
-Сборка уже могла пройти в §2 (клон и зависимости) — тогда шаг ниже просто
-ничего не изменит; если пропустил его или дошёл до этого раздела отдельно —
-собери сейчас:
+Сборку привозит автовыкат (§11), так что сервис можно включать сразу:
+первый же прогон workflow положит `dist/` и перезапустит панель.
 
 ```bash
-# фронт — ДО включения сервиса (нужен Node.js, см. §0/§2)
-sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot/frontend && npm ci && npm run build'
-
 sudo cp /opt/kaspi-ads-autopilot/deploy/kaspi-webui.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now kaspi-webui
@@ -319,3 +289,65 @@ https://cloud-001.h-161398.kz/login   # замени на свой домен
   ```bash
   sudo systemctl restart kaspi-webui
   ```
+
+## 11. Автовыкат через GitHub Actions
+
+Push в `master` → workflow `.github/workflows/deploy.yml`:
+
+1. **Тесты** (на каждый push и PR): все 15 `test_*.py` на Python 3.12 —
+   той же версии, что на VPS, — плюс `lint` / `test` / `build` фронта.
+2. **Выкат** (только push в `master` и только после зелёных тестов): собранный
+   `dist/` уезжает по SSH в `webui/static/dist.new/`, затем на сервере
+   выполняется `deploy/remote_update.sh` (бэкап БД → `git pull --ff-only` →
+   зависимости → атомарная подмена фронта → рестарт обоих сервисов →
+   проверка, что панель отвечает 200).
+
+Почему Python 3.12 в CI: разработка идёт на Mac с 3.9, `requirements.txt` не
+запинен, и однажды это уже дало разъезд версий — зелёные тесты на Mac и 500-я
+на сервере. CI стоит на боевой версии и ловит такое до выката.
+
+### 11.1. Ключ для выката
+
+Свой личный SSH-ключ в GitHub не кладём — заводим отдельный, только под деплой:
+
+```bash
+# на Mac
+ssh-keygen -t ed25519 -f ~/.ssh/kaspi_deploy -N '' -C 'github-actions-deploy'
+ssh-copy-id -i ~/.ssh/kaspi_deploy.pub root@89.207.250.28
+ssh-keyscan -t ed25519 89.207.250.28        # строка для VPS_KNOWN_HOSTS
+cat ~/.ssh/kaspi_deploy                      # приватная часть для VPS_SSH_KEY
+```
+
+Ключ ставим для `root` — рестарт systemd-юнитов требует root; всё, что трогает
+рабочее дерево и `.venv`, скрипт делает через `sudo -u kaspi`, чтобы не портить
+владельца файлов.
+
+### 11.2. Секреты репозитория
+
+Settings → Secrets and variables → Actions → New repository secret:
+
+| Секрет | Значение |
+|---|---|
+| `VPS_HOST` | `89.207.250.28` |
+| `VPS_USER` | `root` |
+| `VPS_SSH_KEY` | приватный ключ целиком, вместе со строками `-----BEGIN/END-----` |
+| `VPS_KNOWN_HOSTS` | вывод `ssh-keyscan` — чтобы CI сверял отпечаток хоста, а не доверял первому встречному |
+
+### 11.3. Чего выкат не касается
+
+`config/rules.yaml`, `config/.env`, `storage_state.json`, `db/autopilot.db`
+скрипт не переписывает. Это важно для `rules.yaml`: файл трекается git'ом, но
+на сервере правится живьём (боевой `dry_run`, пороги из админки). Перед пулом
+скрипт печатает `git status --porcelain`, так что расхождение видно в логе
+Actions; `git pull --ff-only` при конфликте просто падает — **до** рестартов, с
+нетронутым продом. Отсюда же правило: правки `rules.yaml` в репозиторий не
+коммитим.
+
+### 11.4. Если выкат упал
+
+Джоба красная → смотри лог шага «Обновить код и перезапустить сервисы», там
+видно, на каком именно шаге встало. Прогнать заново без нового коммита —
+кнопка **Re-run jobs** в интерфейсе Actions.
+
+Если упала финальная проверка (панель не отдала 200), предыдущая сборка цела в
+`webui/static/dist.old` и скрипт печатает готовую команду отката.

@@ -46,6 +46,11 @@ const MIN_LABEL_GAP = 14;
 export default function LineChart({
   series, maxGap, fmtValue, fmtX, height = 200, corridor, markers,
 }: Props) {
+  // Хук объявлен до любого раннего выхода: ниже есть `return null` для
+  // пустых данных, и вызов useState после него менял бы порядок хуков между
+  // рендерами — React роняет такой переход («rendered fewer hooks»).
+  const [hoverX, setHoverX] = useState<number | null>(null);
+
   const H = height;
   const iw = W - L - R, ih = H - T - B;
 
@@ -69,7 +74,6 @@ export default function LineChart({
   // Расстояния между ними не равны (реальные даты/тики, а не индексы), так
   // что курсор ищет ближайший в пикселях, а не по номеру колонки.
   const hoverXs = Array.from(new Set(series.flatMap((s) => s.data.map((p) => p.x)))).sort((a, b) => a - b);
-  const [hoverX, setHoverX] = useState<number | null>(null);
 
   function handleMove(e: React.MouseEvent<SVGRectElement>) {
     if (hoverXs.length === 0) return;
