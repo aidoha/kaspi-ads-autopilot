@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -589,5 +589,34 @@ def create_app() -> FastAPI:
             finally:
                 store.close()
         return RedirectResponse("/settings", status_code=303)
+
+    # Отдача собранного фронта. Регистрируется ПОСЛЕДНЕЙ: фоллбек ловит всё,
+    # что не разобрали роуты выше, и если повесить его раньше, он перехватит
+    # и /api, и Jinja-страницы.
+    _DIST = os.path.join(_HERE, "static", "dist")
+    if os.path.isdir(_DIST):
+        app.mount("/assets", StaticFiles(directory=os.path.join(_DIST, "assets")),
+                  name="spa-assets")
+
+    @app.get("/{full_path:path}", response_class=HTMLResponse)
+    def spa(full_path: str):
+        """Любой неизвестный путь → index.html: роутинг у React клиентский,
+        и прямой заход по адресу вроде /products/123 должен открывать
+        приложение, а не отдавать 404.
+
+        Опечатка внутри /api/* — отдельный случай: это не клиентский маршрут,
+        а обращение к несуществующему эндпоинту. Отдаём обычный 404, чтобы
+        сработал общий обработчик ошибок API и фронт увидел свою форму
+        {"errors": [...]}, а не разметку SPA, которую не разберёт как JSON."""
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        index = os.path.join(_DIST, "index.html")
+        if not os.path.exists(index):
+            return HTMLResponse(
+                "<h1>Фронт не собран</h1>"
+                "<p>Выполните <code>npm run build</code> в каталоге frontend.</p>",
+                status_code=503)
+        with open(index, encoding="utf-8") as f:
+            return HTMLResponse(f.read())
 
     return app

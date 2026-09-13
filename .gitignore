@@ -14,3 +14,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Фронтенд
+frontend/node_modules/
+webui/static/dist/

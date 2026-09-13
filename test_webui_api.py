@@ -86,11 +86,13 @@ def test_unknown_api_path_uses_the_same_error_shape():
     assert r.status_code == 404, r.text
     assert r.json()["errors"], r.json()
 
-    # Jinja-роуты не затронуты: их 404 читает человек, а не fetch.
+    # Путь вне /api теперь ловит SPA-фоллбек (webui/app.py, задача 1 React-
+    # панели): неизвестный адрес — это клиентский маршрут React, а не Jinja-
+    # 404, поэтому отдаётся index.html (200), а не JSON с ошибкой.
     r = c.get("/нет-такой-страницы")
-    assert r.status_code == 404, r.text
-    assert "errors" not in r.json(), r.json()
-    print("✓ api: неизвестный путь внутри /api отдаёт ту же форму ошибки")
+    assert r.status_code in (200, 503), r.text
+    assert "text/html" in r.headers["content-type"], r.headers
+    print("✓ api: неизвестный путь внутри /api отдаёт ту же форму ошибки, вне /api — SPA")
 
 
 def test_jinja_panel_still_works_alongside_api():
