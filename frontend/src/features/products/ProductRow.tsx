@@ -3,6 +3,7 @@ import { fmtMoney, fmtPct, fmtX, tacosHealth } from "../../api/format";
 import Sparkline from "../../components/Sparkline";
 import Switch from "../../components/Switch";
 import Tag from "../../components/Tag";
+import ProductPanel from "./ProductPanel";
 import type { Product } from "./types";
 
 type Props = {
@@ -94,9 +95,9 @@ export default function ProductRow({ product, campaignLabel, onToggle }: Props) 
       )}
       {expanded && (
         <div className="detail">
-          <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 13 }}>
-            Панель товара появится здесь в следующей задаче.
-          </p>
+          {/* Первая кампания товара — тот же выбор, что и в тоггле выше:
+             sku-настройки едины, а control/decisions per-кампания. */}
+          <ProductPanel campaignId={product.campaign_ids[0] ?? ""} sku={product.sku} />
         </div>
       )}
     </>

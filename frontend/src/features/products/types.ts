@@ -53,3 +53,52 @@ export type Product = {
 export type ProductsResponse = {
   products: Product[];
 };
+
+/** Расписание биддера для товара в конкретной кампании. days_mask — биты
+ *  Пн..Вс = 0..6 (core/daypart.py, как datetime.weekday()). */
+export type ProductControl = {
+  enabled: boolean;
+  window_start: number;
+  window_end: number;
+  days_mask: number;
+};
+
+/** Одна строка decisions_log (core/store.py). old_bid/new_bid — ставка до
+ *  и после решения; при action="hold" обычно совпадают. */
+export type Decision = {
+  ts: number;
+  day: string;
+  sku: string;
+  merchant_sku: string;
+  old_bid: number | null;
+  new_bid: number | null;
+  action: "raise" | "lower" | "hold";
+  loop: string;
+  reason: string;
+  applied: number;
+  campaign_id: string;
+};
+
+/** GET /api/products/{cid}/{sku}. values — эффективный конфиг (глобал →
+ *  кампания → товар), всегда числа. owned — поля, заданные ИМЕННО на уровне
+ *  этого товара (см. task-3-brief: не путать со «значение отличается от
+ *  глобального» — совпасть оно может и при переопределении). */
+export type ProductDetail = {
+  sku: string;
+  campaign_id: string;
+  name: string | null;
+  values: Record<string, number>;
+  owned: string[];
+  control: ProductControl;
+  decisions: Decision[];
+};
+
+/** POST .../preview — предсказание, ничего не отправлено и не изменено.
+ *  null — по товару ещё нет снапшота; control — решение контрольного слоя
+ *  (выключен/вне окна), до правил дело не дошло; fast+slow — оба контура
+ *  конкурируют, важны оба (core/preview.py). */
+export type PreviewLoop = { action: "raise" | "lower" | "hold"; reason: string };
+export type Preview =
+  | null
+  | { control: PreviewLoop }
+  | { fast: PreviewLoop; slow: PreviewLoop };

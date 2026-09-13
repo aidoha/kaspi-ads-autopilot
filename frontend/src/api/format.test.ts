@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtMoney, fmtPct, fmtX, tacosHealth } from "./format";
+import { fmtMoney, fmtPct, fmtTime, fmtX, tacosHealth } from "./format";
 
 describe("форматтеры", () => {
   it("null — это прочерк, а не ноль", () => {
@@ -25,6 +25,12 @@ describe("форматтеры", () => {
 
   it("ROAS — кратность", () => {
     expect(fmtX(14.6)).toBe("14,6×");
+  });
+
+  it("время решения — часы:минуты Алматы, без даты", () => {
+    expect(fmtTime(null)).toBe("—");
+    // 1700000000с = 15.11.2023 04:13:20 в Алматы (+06:00).
+    expect(fmtTime(1_700_000_000)).toBe("04:13");
   });
 
   it("здоровье TACoS: пороги те же, что были в старой панели", () => {
