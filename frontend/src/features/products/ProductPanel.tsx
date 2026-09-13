@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, ApiError } from "../../api/client";
 import Segmented from "../../components/Segmented";
+import ChartsTab from "./ChartsTab";
 import DecisionsTab from "./DecisionsTab";
 import SettingsTab from "./SettingsTab";
 import type { ProductDetail } from "./types";
@@ -22,8 +23,7 @@ type Props = {
 };
 
 /** Панель товара (.detail-top + .tabpanel из макета): грузит карточку по
- *  раскрытию строки, переключает вкладки «Графики / Настройки / Решения».
- *  «Графики» — заглушка, наполнит задача 4. */
+ *  раскрытию строки, переключает вкладки «Графики / Настройки / Решения». */
 export default function ProductPanel({ campaignId, sku }: Props) {
   const [tab, setTab] = useState<Tab>("charts");
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -89,7 +89,7 @@ export default function ProductPanel({ campaignId, sku }: Props) {
       </div>
 
       <div className="tabpanel" hidden={tab !== "charts"}>
-        <p className="empty-list">Графики появятся здесь в следующей задаче.</p>
+        <ChartsTab campaignId={campaignId} sku={sku} />
       </div>
 
       <div className="tabpanel" hidden={tab !== "settings"}>

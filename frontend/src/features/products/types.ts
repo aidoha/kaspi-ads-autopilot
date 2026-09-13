@@ -102,3 +102,47 @@ export type Preview =
   | null
   | { control: PreviewLoop }
   | { fast: PreviewLoop; slow: PreviewLoop };
+
+/** GET .../series — ряды для графиков вкладки «Графики». Две шкалы времени
+ *  в разных массивах (см. task-4-brief): ticks — внутридневные тики
+ *  воркера (несколько точек в сутки), daily — ровно одна точка на день.
+ *  Смешивать их в одну ось X нельзя. */
+export type Tick = { ts: number; bid: number | null; avg_cpc: number | null };
+
+/** Подневная точка. Поля — null, когда величина не определена (например
+ *  revenue, если Shop API ещё не опрашивали за день) — это дырка на
+ *  графике, а не ноль. */
+export type DailyPoint = {
+  day: string;
+  cost: number | null;
+  revenue: number | null;
+  gmv: number | null;
+  views: number | null;
+  clicks: number | null;
+  carts: number | null;
+  transactions: number | null;
+  tacos: number | null;
+  roas: number | null;
+  roas_gmv: number | null;
+  ctr: number | null;
+  cr: number | null;
+};
+
+/** Правка биддера — маркер на графике ставки. */
+export type DecisionMarker = {
+  ts: number;
+  action: "raise" | "lower" | "hold";
+  old_bid: number | null;
+  new_bid: number | null;
+  reason: string;
+};
+
+/** Целевой коридор TACoS эффективного конфига товара. Доли (0..1), не проценты. */
+export type Corridor = { low: number; high: number };
+
+export type ProductSeries = {
+  ticks: Tick[];
+  daily: DailyPoint[];
+  decisions: DecisionMarker[];
+  corridor: Corridor;
+};
