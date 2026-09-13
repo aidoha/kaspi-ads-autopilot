@@ -156,6 +156,17 @@ sudo systemctl restart kaspi-autopilot
   sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot && git pull && .venv/bin/pip install -r requirements.txt'
   sudo systemctl restart kaspi-autopilot
   ```
+- **Обновление веб-панели (React):** панель — собранный фронт
+  (`webui/static/dist/`), который `webui/app.py` отдаёт как SPA; `git pull`
+  тянет только исходники, `dist/` в `.gitignore` и не собирается
+  автоматически (CI-сборка — отдельная будущая часть плана). Поэтому перед
+  рестартом `kaspi-webui` фронт нужно пересобрать вручную:
+  ```bash
+  sudo -iu kaspi bash -c 'cd /opt/kaspi-ads-autopilot/frontend && npm ci && npm run build'
+  sudo systemctl restart kaspi-webui
+  ```
+  Без этого шага после `git pull` `webui/app.py` продолжит отдавать старую
+  собранную панель (или, если `dist/` вообще нет, страницу «Фронт не собран»).
 - **БД** `db/autopilot.db` (SQLite) — лог решений/выручки/TACoS; схема
   мигрируется автоматически при старте. Бэкапить по желанию.
 - **Сессия** `storage_state.json` обновляется сама (по таймстампу и через

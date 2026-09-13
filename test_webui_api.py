@@ -1,7 +1,10 @@
 """test_webui_api.py — оффлайн-тест JSON API панели через FastAPI TestClient.
 
-Jinja-панель живёт параллельно и проверяется отдельно в test_webui.py.
-Здесь — только /api/*: коды ответов, формат ошибок, содержимое JSON.
+Jinja-панели больше нет (снесена в task-6 webui-redesign-part3-react) —
+панель целиком React, она ходит сюда через fetch. test_webui.py оставляет
+себе только то, что не привязано к API (хеширование пароля, сам факт
+подъёма приложения). Здесь — только /api/*: коды ответов, формат ошибок,
+содержимое JSON.
 
 Запуск: .venv/bin/python test_webui_api.py
 """
@@ -93,18 +96,6 @@ def test_unknown_api_path_uses_the_same_error_shape():
     assert r.status_code in (200, 503), r.text
     assert "text/html" in r.headers["content-type"], r.headers
     print("✓ api: неизвестный путь внутри /api отдаёт ту же форму ошибки, вне /api — SPA")
-
-
-def test_jinja_panel_still_works_alongside_api():
-    """API добавляется РЯДОМ со старой панелью, а не вместо неё. Пока не
-    готов React, Jinja — единственный работающий интерфейс."""
-    c, _, _ = _client()
-    r = c.get("/login")
-    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
-    c.post("/login", data={"username": "admin", "password": "secret"})
-    r = c.get("/")
-    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
-    print("✓ api: Jinja-панель продолжает работать параллельно")
 
 
 def _seed_metrics(db, day, rows):
@@ -468,7 +459,20 @@ def test_write_endpoints_require_login():
                  json={"values": {}}, follow_redirects=False).status_code == 401
     assert c.post("/api/dry-run", json={"dry_run": True},
                   follow_redirects=False).status_code == 401
+    assert c.post("/api/refresh", follow_redirects=False).status_code == 401
     print("✓ api: запись требует входа")
+
+
+def test_refresh_is_best_effort_and_does_not_crash():
+    """В тестовом окружении нет кредов кабинета (пустой ENV_FILE) → живой
+    пулл невозможен, но роут не должен падать 500-й — best-effort {"ok": False}.
+    Раньше это проверял Jinja-тест /refresh (редирект на /), теперь — тот же
+    контракт best-effort на /api/refresh."""
+    c, _, _ = _logged_in()
+    r = c.post("/api/refresh")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": False}, r.json()
+    print("✓ api: /refresh — best-effort, не падает без сессии кабинета")
 
 
 def test_api_error_shape_is_the_same_for_every_kind_of_error():
@@ -563,7 +567,6 @@ if __name__ == "__main__":
     test_api_login_rejects_wrong_password()
     test_api_logout_clears_session()
     test_unknown_api_path_uses_the_same_error_shape()
-    test_jinja_panel_still_works_alongside_api()
     test_overview_totals_sum_across_products()
     test_overview_filters_by_campaign()
     test_overview_empty_db_returns_zeros_not_error()
@@ -586,6 +589,7 @@ if __name__ == "__main__":
     test_api_preview_returns_both_loops_and_changes_nothing()
     test_api_preview_without_snapshot_is_null_not_error()
     test_write_endpoints_require_login()
+    test_refresh_is_best_effort_and_does_not_crash()
     test_api_error_shape_is_the_same_for_every_kind_of_error()
     test_api_never_redirects_on_trailing_slash()
     test_series_is_scoped_to_the_campaign_in_the_path()
