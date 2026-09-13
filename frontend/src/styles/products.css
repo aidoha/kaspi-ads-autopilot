@@ -338,6 +338,48 @@ h2 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -0.015em; }
 }
 .tip .k { color: var(--ink-3); }
 
+/* ---- экран настроек биддера: пороги для всех товаров ----
+   Того же языка, что .group/.field выше — в утверждённом макете этого
+   экрана нет (там только товары), поэтому строим на тех же токенах и
+   приёмах, ничего нового не изобретая. */
+.gfield {
+  display: grid; grid-template-columns: minmax(0,1fr) 170px;
+  gap: 16px; align-items: center; padding: 13px 18px;
+}
+.gfield + .gfield { border-top: 1px solid var(--hairline); }
+.gfield-label { font-size: 14px; display: block; }
+.gfield-label small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 2px; line-height: 1.45; }
+.gfield input[type="number"],
+.gfield input[type="text"] {
+  font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--hairline-2); background: var(--surface); color: var(--ink);
+  width: 100%; box-sizing: border-box;
+}
+.gfield input[type="number"] { text-align: right; font-variant-numeric: tabular-nums; }
+
+.form-actions { margin: 18px 0 0; display: flex; gap: 12px; align-items: center; }
+
+/* ---- карточка тестового режима: инфо слева, тоггл справа ---- */
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px; padding: 18px; flex-wrap: wrap;
+}
+.toggle-row .info strong { display: block; margin-bottom: 4px; font-size: 14.5px; }
+.toggle-row .info p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.5; max-width: 560px; }
+
+/* ---- аудит правок настроек ---- */
+.audit-wrap { overflow-x: auto; }
+table.audit { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.audit th, table.audit td {
+  text-align: left; padding: 10px 18px; border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+table.audit th {
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-3); background: var(--surface-2);
+}
+table.audit tr:last-child td { border-bottom: none; }
+
 @media (max-width: 860px) {
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .kpi:nth-child(odd) + .kpi { border-left: 1px solid var(--hairline); }
@@ -346,6 +388,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -0.015em; }
   .row .hide-sm { display: none; }
   .field { grid-template-columns: minmax(0,1fr) 96px; }
   .field .inh { grid-column: 1 / -1; justify-content: flex-start; }
+  .gfield { grid-template-columns: minmax(0,1fr) 110px; }
   .dec-row { grid-template-columns: 1fr; gap: 2px; padding: 10px 2px 12px; }
   .dec-bid { text-align: left; }
   .small-mults { grid-template-columns: 1fr; }

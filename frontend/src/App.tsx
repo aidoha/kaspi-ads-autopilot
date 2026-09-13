@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend, ApiError } from "./api/client";
 import LoginScreen from "./features/auth/LoginScreen";
 import ProductsScreen from "./features/products/ProductsScreen";
+import SettingsScreen from "./features/settings/SettingsScreen";
+import { pathForScreen, screenFromPath, type Screen } from "./route";
 
 type AuthState =
   | { kind: "loading" }
@@ -17,6 +19,12 @@ type AuthState =
  *  вводить верный пароль в ответ на сетевую ошибку, думая, что забыл его. */
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ kind: "loading" });
+  const [screen, setScreen] = useState<Screen>(() => screenFromPath(window.location.pathname));
+  // Тестовый режим — общее состояние приложения: индикатор в шапке главного
+  // экрана и тоггл в настройках обязаны показывать одно и то же, а не
+  // расходиться после переключения (see task-5-brief, шаг 2). null, пока
+  // ещё не узнали текущее значение.
+  const [dryRun, setDryRun] = useState<boolean | null>(null);
 
   const checkMe = useCallback(() => {
     setAuth({ kind: "loading" });
@@ -39,6 +47,34 @@ export default function App() {
   useEffect(() => {
     checkMe();
   }, [checkMe]);
+
+  // Кнопка «назад» в браузере — путь меняем сами через navigate(), но
+  // адрес может смениться и снаружи (пользователь дёрнул назад/вперёд).
+  useEffect(() => {
+    function onPopState() {
+      setScreen(screenFromPath(window.location.pathname));
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  // Индикатор режима в шапке должен быть верным ещё до того, как владелец
+  // вообще открыл настройки — подгружаем один раз при входе, не дожидаясь
+  // перехода на экран настроек.
+  useEffect(() => {
+    if (auth.kind !== "user") return;
+    apiGet<{ settings: { dry_run: boolean } }>("/api/settings")
+      .then((res) => setDryRun(Boolean(res.settings.dry_run)))
+      .catch(() => { /* индикатор необязателен — экран товаров им не блокируем */ });
+  }, [auth.kind]);
+
+  function navigate(next: Screen) {
+    setScreen(next);
+    const path = pathForScreen(next);
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+  }
 
   async function logout() {
     try {
@@ -69,5 +105,22 @@ export default function App() {
     return <LoginScreen onLoggedIn={(user) => setAuth({ kind: "user", user })} />;
   }
 
-  return <ProductsScreen onLogout={logout} />;
+  if (screen === "settings") {
+    return (
+      <SettingsScreen
+        dryRun={dryRun}
+        onDryRunChange={setDryRun}
+        onBack={() => navigate("products")}
+        onLogout={logout}
+      />
+    );
+  }
+
+  return (
+    <ProductsScreen
+      onLogout={logout}
+      dryRun={dryRun}
+      onOpenSettings={() => navigate("settings")}
+    />
+  );
 }

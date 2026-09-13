@@ -19,15 +19,21 @@ type Props = {
    *  живёт на куке. Кнопка нужна чтобы владелец мог выйти вообще откуда-то;
    *  выносим её в шапку минимальным элементом, не нарушая вёрстку макета. */
   onLogout: () => void;
+  /** Тестовый режим — общее состояние приложения (App), не локальное: та же
+   *  величина, что тоггл на экране настроек. null — ещё не узнали. */
+  dryRun: boolean | null;
+  onOpenSettings: () => void;
 };
 
 /** Главный экран: шапка с фильтрами, строка KPI, список товаров с
  *  тогглерами. Разметка и стили — из утверждённого макета
  *  docs/design/autopilot-mockup.html. */
-export default function ProductsScreen({ onLogout }: Props) {
+export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Props) {
   const [campaign, setCampaign] = useState("all");
   const [period, setPeriod] = useState<Period>("14");
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const load = useCallback((onCancelled: () => boolean) => {
     setState({ kind: "loading" });
@@ -101,6 +107,22 @@ export default function ProductsScreen({ onLogout }: Props) {
     }
   }
 
+  // «Обновить сейчас» — POST /api/refresh идёт в кабинет Kaspi и Shop API
+  // синхронно, поэтому по успеху перезапрашиваем обзор и список заново, а
+  // не патчим их локально — сервер знает, что реально изменилось.
+  async function refreshNow() {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      await apiSend("POST", "/api/refresh");
+      load(() => false);
+    } catch (err) {
+      setRefreshError(err instanceof ApiError ? err.errors.join(", ") : "Не удалось обновить данные");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   const enabledCount = products.filter((p) => p.enabled).length;
   const hasMultiCampaignProduct = products.some((p) => p.campaign_ids.length > 1);
   // Не campaigns.length: тот список зависит от доступности кабинета Kaspi
@@ -116,6 +138,10 @@ export default function ProductsScreen({ onLogout }: Props) {
             <span className="brand-dot" aria-hidden="true" />
             Автопилот ставок
             <small>обновлено {fmtTs(overview.last_snapshot_ts)}</small>
+            <button type="button" className="linkish" onClick={refreshNow} disabled={refreshing}>
+              {refreshing ? "Обновляем…" : "Обновить сейчас"}
+            </button>
+            {refreshError && <small style={{ color: "var(--crit)" }}>{refreshError}</small>}
           </div>
           <select
             className="plain"
@@ -138,6 +164,7 @@ export default function ProductsScreen({ onLogout }: Props) {
               { value: "30", label: "30 дней" },
             ]}
           />
+          {dryRun && <span className="pill-run">Тестовый режим</span>}
           <button type="button" className="linkish" onClick={onLogout}>Выйти</button>
         </div>
       </div>
@@ -147,6 +174,7 @@ export default function ProductsScreen({ onLogout }: Props) {
           <h1>Товары</h1>
           <p className="sub">
             {products.length} товаров в {campaignCount} кампаниях · за последние <b>{overview.days} дней</b>
+            {dryRun && <> · ставки в кабинет не уходят — включён тестовый режим</>}
           </p>
         </div>
 
@@ -161,6 +189,7 @@ export default function ProductsScreen({ onLogout }: Props) {
         <div className="sec-head">
           <h2>Все товары</h2>
           <span className="count">биддер ведёт {enabledCount} из {products.length}</span>
+          <button type="button" className="linkish" onClick={onOpenSettings}>Настройки биддера</button>
         </div>
 
         <div className="group">
