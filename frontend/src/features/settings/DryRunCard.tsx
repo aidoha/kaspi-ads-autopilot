@@ -40,7 +40,7 @@ export default function DryRunCard({ dryRun, onChanged }: Props) {
   function handleChange(checked: boolean) {
     if (dryRun && !checked) {
       const confirmed = window.confirm(
-        "Выключить тестовый режим? Биддер начнёт отправлять реальные ставки и тратить бюджет.",
+        "Выключить тестовый режим? Биддер начнёт отправлять реальные ставки в кабинет Kaspi и тратить бюджет.",
       );
       if (!confirmed) return;
     }
