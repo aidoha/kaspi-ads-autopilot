@@ -5,7 +5,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from webui.api.deps import ApiContext, require_user
+from webui.api.deps import ApiContext, read_json, require_user
 from webui.auth import verify_password
 
 log = logging.getLogger("webui.api")
@@ -16,7 +16,7 @@ def build_router(ctx: ApiContext) -> APIRouter:
 
     @router.post("/login")
     async def login(request: Request):
-        body = await request.json()
+        body = await read_json(request)
         username = str(body.get("username", ""))
         password = str(body.get("password", ""))
         if (username == ctx.username and ctx.pw_hash

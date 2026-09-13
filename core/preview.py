@@ -43,7 +43,10 @@ def preview_decision(store, rules_path: str, campaign_id: str, sku: str,
     {"fast": {...}, "slow": {...}} — оба контура; они конкурируют, и владельцу
     важно видеть каждый.
     """
-    snap = store.get_latest_snapshot(sku)
+    # Снапшот берём ТОЙ кампании, для которой считаем превью: у товара из
+    # двух кампаний снапшоты (и ставки) разные, а превью должно предсказывать
+    # решение именно для запрошенной кампании, а не для случайной из них.
+    snap = store.get_latest_snapshot(sku, campaign_id=campaign_id)
     if snap is None:
         return None
 

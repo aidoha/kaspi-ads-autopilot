@@ -36,6 +36,21 @@ def require_user(request: Request) -> str:
     return user
 
 
+async def read_json(request: Request) -> dict:
+    """Тело запроса как словарь. Битый JSON — это 400 с понятным текстом,
+    а не голый 500: панелью пользуется человек, и он должен понять, что
+    сломалось, а не увидеть пустую ошибку сервера."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400,
+                            detail={"errors": ["Тело запроса — не JSON"]})
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400,
+                            detail={"errors": ["Тело запроса должно быть объектом"]})
+    return body
+
+
 @contextmanager
 def open_store(ctx: ApiContext):
     """Соединение со стором на время запроса. Store открывает свой sqlite3 и

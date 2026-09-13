@@ -469,6 +469,92 @@ def test_write_endpoints_require_login():
     print("✓ api: запись требует входа")
 
 
+def test_api_error_shape_is_the_same_for_every_kind_of_error():
+    """Фронт разбирает ответы /api/* по одной форме. Любая ошибка — параметр,
+    битое тело, неизвестный путь — обязана выглядеть одинаково."""
+    c, _, _ = _logged_in()
+
+    r = c.get("/api/products?days=не-число")
+    assert r.status_code == 400, (r.status_code, r.text)
+    assert r.json()["errors"], r.json()
+
+    r = c.put("/api/products/c1/s1/control", content=b"{not valid json")
+    assert r.status_code == 400, (r.status_code, r.text)
+    assert r.json()["errors"], r.json()
+
+    r = c.post("/api/login", content=b"[]")
+    assert r.status_code == 400, (r.status_code, r.text)
+    assert r.json()["errors"], r.json()
+    print("✓ api: любая ошибка имеет одну и ту же форму")
+
+
+def test_api_never_redirects_on_trailing_slash():
+    """/api/* никогда не редиректит: фронт ждёт данные или ошибку, а 307
+    он молча пойдёт отрабатывать и получит неожиданное."""
+    c, _, _ = _logged_in()
+    r = c.get("/api/products/", follow_redirects=False)
+    assert r.status_code != 307, r.status_code
+    print("✓ api: слэш на конце не даёт редиректа")
+
+
+def test_series_is_scoped_to_the_campaign_in_the_path():
+    """Коридор в ответе считается для конкретной кампании — значит и ряды
+    обязаны быть её, иначе ответ противоречит сам себе.
+
+    Эндпоинт /series клэмпит days до 90 (защита от неограниченных запросов) —
+    поэтому, в отличие от прямого теста store.get_snapshot_series, метки
+    времени должны быть свежими, а не тестовым фикс. эпохом 2023 года."""
+    c, _, db = _logged_in()
+    import time as _t
+    now = int(_t.time())
+    _seed_snapshot(db, "c1", "s1", bid=10, ts=now - 100)
+    _seed_snapshot(db, "c2", "s1", bid=99, ts=now - 50)
+
+    ticks = c.get("/api/products/c1/s1/series?days=7").json()["ticks"]
+    assert [p["bid"] for p in ticks] == [10], ticks
+    print("✓ api: ряды сужены до кампании из пути")
+
+
+def test_products_list_shows_bid_from_the_freshest_snapshot():
+    """У товара из двух кампаний ставка в списке — последняя известная,
+    а не от кампании, чей id раньше по алфавиту."""
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "zzz", "s1", bid=77, ts=1_700_000_100)   # свежее
+    _seed_snapshot(db, "aaa", "s1", bid=11, ts=1_700_000_000)   # старее
+    items = c.get("/api/products?days=7").json()["products"]
+    assert len(items) == 1 and items[0]["bid"] == 77, items
+    print("✓ api: ставка в списке из самого свежего снапшота")
+
+
+def test_control_put_preserves_fields_that_were_not_sent():
+    """Тумблер в списке шлёт только enabled. Он не должен стирать рабочее
+    окно товара — иначе биддер начнёт работать круглосуточно без ведома
+    владельца."""
+    c, _, _ = _logged_in()
+    c.put("/api/products/c1/s1/control",
+          json={"enabled": True, "window_start": 9, "window_end": 23,
+                "days_mask": 31})
+
+    c.put("/api/products/c1/s1/control", json={"enabled": False})
+
+    ctl = c.get("/api/products/c1/s1").json()["control"]
+    assert ctl["enabled"] is False, ctl
+    assert ctl["window_start"] == 9 and ctl["window_end"] == 23, ctl
+    assert ctl["days_mask"] == 31, ctl
+    print("✓ api: частичный PUT расписания не стирает несланные поля")
+
+
+def test_global_settings_reject_unknown_field():
+    """Симметрия с настройками товара: опечатку в имени поля пользователь
+    должен увидеть, а не гадать, почему значение не применилось."""
+    c, _, _ = _logged_in()
+    s = c.get("/api/settings").json()["settings"]
+    r = c.put("/api/settings", json={"settings": {**s, "нет_такого": 1}})
+    assert r.status_code == 400, r.text
+    assert r.json()["errors"], r.json()
+    print("✓ api: глобальные настройки отвергают неизвестное поле")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -498,5 +584,11 @@ if __name__ == "__main__":
     test_api_preview_returns_both_loops_and_changes_nothing()
     test_api_preview_without_snapshot_is_null_not_error()
     test_write_endpoints_require_login()
+    test_api_error_shape_is_the_same_for_every_kind_of_error()
+    test_api_never_redirects_on_trailing_slash()
+    test_series_is_scoped_to_the_campaign_in_the_path()
+    test_products_list_shows_bid_from_the_freshest_snapshot()
+    test_control_put_preserves_fields_that_were_not_sent()
+    test_global_settings_reject_unknown_field()
     print("-" * 60)
     print("✓ Все проверки API прошли")

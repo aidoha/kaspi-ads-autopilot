@@ -474,22 +474,51 @@ def test_metrics_series_keeps_unknown_revenue_unknown():
 
 
 def test_metrics_series_ascending_and_limited_after_fold():
-    """Свёртка не должна поломать сортировку и лимит по дням."""
+    """Свёртка не должна поломать сортировку и лимит по дням.
+
+    Окно календарное (см. test_metrics_series_window_is_calendar_not_rows) —
+    дни считаем от «сегодня», а не фиксированной датой в прошлом, иначе при
+    строгом календарном окне ряд однажды перестанет что-либо находить."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Asia/Almaty")).date()
+    days_seq = [(today - timedelta(days=n)).isoformat() for n in range(4, -1, -1)]  # 5 дней подряд, по возрастанию
+
     s = new_store()
-    for n in range(1, 6):
+    for i, day in enumerate(days_seq, start=1):
         s.upsert_metrics_daily(
-            day=f"2026-09-0{n}", campaign_id="c1", sku="s1", merchant_sku="m1",
-            cost=n * 100, gmv=0, views=0, clicks=0, carts=0, transactions=0,
-            ctr=0.0, cr=0.0, revenue=None, ts=n)
+            day=day, campaign_id="c1", sku="s1", merchant_sku="m1",
+            cost=i * 100, gmv=0, views=0, clicks=0, carts=0, transactions=0,
+            ctr=0.0, cr=0.0, revenue=None, ts=i)
     s.upsert_metrics_daily(
-        day="2026-09-03", campaign_id="c1", sku="s2", merchant_sku="m2",
+        day=days_seq[2], campaign_id="c1", sku="s2", merchant_sku="m2",
         cost=999, gmv=0, views=0, clicks=0, carts=0, transactions=0,
         ctr=0.0, cr=0.0, revenue=None, ts=9)
 
     series = s.get_metrics_series("s1", days=3)
-    assert [r["day"] for r in series] == ["2026-09-03", "2026-09-04", "2026-09-05"], series
+    assert [r["day"] for r in series] == days_seq[2:], series
     assert [r["cost"] for r in series] == [300, 400, 500], series
     print("✓ ряд metrics отсортирован, ограничен и не ловит чужой товар")
+
+
+def test_metrics_series_window_is_calendar_not_rows():
+    """Окно считается в календарных сутках, а не в днях с данными. При дырах
+    в сборе ряд не должен уезжать в прошлое, иначе числа за «последние 7 дней»
+    в разных местах панели перестанут сходиться."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Asia/Almaty")).date()
+    s = new_store()
+    for back in (0, 1, 30):        # сегодня, вчера и день месячной давности
+        s.upsert_metrics_daily(
+            day=(today - timedelta(days=back)).isoformat(), campaign_id="c1",
+            sku="s1", merchant_sku="m1", cost=100, gmv=0, views=0, clicks=0,
+            carts=0, transactions=0, ctr=0.0, cr=0.0, revenue=None, ts=1)
+
+    days = [r["day"] for r in s.get_metrics_series("s1", days=7)]
+    assert len(days) == 2, days       # старый день за окном, добирать нечего
+    assert days == sorted(days), days
+    print("✓ окно ряда метрик календарное, а не по числу строк с данными")
 
 
 def test_snapshot_series_returns_bid_and_cpc_by_tick():
@@ -533,6 +562,30 @@ def test_decision_markers_carry_reason():
     assert marks[0]["reason"] == "cart-rate выше цели", marks[0]
     assert marks[0]["old_bid"] == 32 and marks[0]["new_bid"] == 34, marks[0]
     print("✓ маркеры решений несят действие, ставки и причину")
+
+
+def test_snapshot_and_decision_series_can_scope_by_campaign():
+    """Ставка и решение — величины уровня кампании. Товар из двух кампаний
+    не должен отдавать слитую хронологию, где ставки чередуются."""
+    s = new_store()
+    s.save_products_snapshot([cp(sku="s1", merchant_sku="m1", bid=10)],
+                             ts=1_700_000_000, campaign_id="c1")
+    s.save_products_snapshot([cp(sku="s1", merchant_sku="m1", bid=99)],
+                             ts=1_700_000_001, campaign_id="c2")
+
+    both = s.get_snapshot_series("s1", days=3650)
+    only_c1 = s.get_snapshot_series("s1", days=3650, campaign_id="c1")
+    assert [p["bid"] for p in both] == [10, 99], both
+    assert [p["bid"] for p in only_c1] == [10], only_c1
+
+    ts = 1_700_000_000
+    s.log_decision(dec(sku="s1", action="raise", reason="кампания 1"),
+                   ts=ts, day="2026-09-13", applied=True, campaign_id="c1")
+    s.log_decision(dec(sku="s1", action="lower", reason="кампания 2"),
+                   ts=ts + 1, day="2026-09-13", applied=True, campaign_id="c2")
+    marks = s.get_decision_markers("s1", days=3650, campaign_id="c2")
+    assert [m["reason"] for m in marks] == ["кампания 2"], marks
+    print("✓ ряды ставки и решений умеют сужаться до кампании")
 
 
 def test_ai_insight_roundtrip_and_overwrite():
@@ -598,8 +651,10 @@ if __name__ == "__main__":
     test_metrics_series_folds_two_campaigns_into_one_day()
     test_metrics_series_keeps_unknown_revenue_unknown()
     test_metrics_series_ascending_and_limited_after_fold()
+    test_metrics_series_window_is_calendar_not_rows()
     test_snapshot_series_returns_bid_and_cpc_by_tick()
     test_decision_markers_carry_reason()
+    test_snapshot_and_decision_series_can_scope_by_campaign()
     test_ai_insight_roundtrip_and_overwrite()
     test_count_ai_calls_counts_forced_recomputes()
     print("-" * 60)

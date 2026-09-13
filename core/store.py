@@ -23,11 +23,15 @@ from __future__ import annotations
 import os
 import sqlite3
 import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from connectors.marketing_client import CampaignProduct
 from core.daypart import ProductControl
 from core.revenue import SkuRevenue
 from core.rules import Decision, DailyState
+
+ALMATY = ZoneInfo("Asia/Almaty")
 
 
 class Store:
@@ -232,12 +236,25 @@ class Store:
         ).fetchone()
         return row["avg_cpc"] if row else None
 
-    def get_latest_snapshot(self, sku: str) -> dict | None:
-        """Последний снапшот товара (для дашборда — текущая ставка и т.п.)."""
-        row = self._conn.execute(
-            "SELECT * FROM products_snapshot WHERE sku=? ORDER BY ts DESC LIMIT 1",
-            (sku,),
-        ).fetchone()
+    def get_latest_snapshot(self, sku: str,
+                            campaign_id: str | None = None) -> dict | None:
+        """Последний снапшот товара (для дашборда — текущая ставка и т.п.).
+
+        campaign_id сужает выбор до конкретной кампании: превью решения
+        обязано смотреть на снапшот ТОЙ кампании, для которой его вызвали,
+        иначе у товара из двух кампаний предсказание может опираться на
+        чужую ставку. Без campaign_id — прежнее поведение (по всем)."""
+        if campaign_id is not None:
+            row = self._conn.execute(
+                "SELECT * FROM products_snapshot WHERE sku=? AND campaign_id=? "
+                "ORDER BY ts DESC LIMIT 1",
+                (sku, campaign_id),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT * FROM products_snapshot WHERE sku=? ORDER BY ts DESC LIMIT 1",
+                (sku,),
+            ).fetchone()
         return dict(row) if row else None
 
     def get_campaign_skus(self, campaign_id: str) -> list[dict]:
@@ -419,13 +436,25 @@ class Store:
         return row["n"] if row else 0
 
     def get_decisions_for_sku_day(self, day: str, sku: str,
-                                  limit: int, offset: int) -> list[dict]:
-        """Страница решений по одному товару за день (сначала свежие)."""
-        rows = self._conn.execute(
-            "SELECT * FROM decisions_log WHERE day=? AND sku=? "
-            "ORDER BY ts DESC LIMIT ? OFFSET ?",
-            (day, sku, limit, offset),
-        ).fetchall()
+                                  limit: int, offset: int,
+                                  campaign_id: str | None = None) -> list[dict]:
+        """Страница решений по одному товару за день (сначала свежие).
+
+        campaign_id сужает до решений конкретной кампании — карточка товара
+        показывает решения ТОЙ кампании, что в пути запроса. Без него —
+        прежнее поведение (по всем кампаниям)."""
+        if campaign_id is not None:
+            rows = self._conn.execute(
+                "SELECT * FROM decisions_log WHERE day=? AND sku=? AND campaign_id=? "
+                "ORDER BY ts DESC LIMIT ? OFFSET ?",
+                (day, sku, campaign_id, limit, offset),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM decisions_log WHERE day=? AND sku=? "
+                "ORDER BY ts DESC LIMIT ? OFFSET ?",
+                (day, sku, limit, offset),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     # ---- аудит настроек -----------------------------------------------------
@@ -599,7 +628,15 @@ class Store:
           • tacos/roas/ctr/cr — ПЕРЕСЧИТЫВАЕМ из свёрнутых сумм, а не усредняем
             готовые: среднее двух отношений с разными знаменателями неверно.
         Наивный SELECT здесь задвоил бы выручку и показал ROAS вдвое лучше.
-        """
+
+        Окно — СТРОГО последние `days` календарных суток Алматы, а не
+        последние `days` дней С ДАННЫМИ. При дырах в сборе (простой, блок
+        WAF) окно по числу строк уезжает в прошлое, и `overview?days=14`
+        (строгое календарное окно) перестаёт быть сопоставим с этим рядом за
+        тот же номинальный период. Дни без данных просто отсутствуют в
+        ряду — это честно, фронт нарисует разрыв."""
+        today = datetime.now(ALMATY).date()
+        since_day = (today - timedelta(days=days - 1)).isoformat()
         rows = self._conn.execute(
             """SELECT day,
                       SUM(cost)         AS cost,
@@ -611,12 +648,10 @@ class Store:
                       MAX(revenue)      AS revenue,
                       COUNT(revenue)    AS revenue_known
                FROM metrics_daily
-               WHERE sku=? AND day IN (
-                   SELECT day FROM metrics_daily WHERE sku=?
-                   GROUP BY day ORDER BY day DESC LIMIT ?)
+               WHERE sku=? AND day>=?
                GROUP BY day
                ORDER BY day ASC""",
-            (sku, sku, days),
+            (sku, since_day),
         ).fetchall()
 
         out: list[dict] = []
@@ -639,28 +674,51 @@ class Store:
             })
         return out
 
-    def get_snapshot_series(self, sku: str, days: int) -> list[dict]:
+    def get_snapshot_series(self, sku: str, days: int,
+                            campaign_id: str | None = None) -> list[dict]:
         """Ставка и цена клика ПО ТИКАМ за последние `days` суток.
         Отдельно от get_metrics_series: у ставки внутридневное разрешение —
-        именно на нём видно, как биддер её двигал."""
+        именно на нём видно, как биддер её двигал.
+
+        campaign_id сужает ряд до конкретной кампании: ставка и решение —
+        величины уровня кампании, и товар из двух кампаний не должен отдавать
+        слитую хронологию, где ставки чередуются между кампаниями. Список
+        товаров вызывает без campaign_id — там нужен спарклайн уровня товара."""
         since = int(time.time()) - days * 86400
-        rows = self._conn.execute(
-            "SELECT ts, bid, avg_cpc FROM products_snapshot "
-            "WHERE sku=? AND ts>=? ORDER BY ts ASC",
-            (sku, since),
-        ).fetchall()
+        if campaign_id is not None:
+            rows = self._conn.execute(
+                "SELECT ts, bid, avg_cpc FROM products_snapshot "
+                "WHERE sku=? AND ts>=? AND campaign_id=? ORDER BY ts ASC",
+                (sku, since, campaign_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT ts, bid, avg_cpc FROM products_snapshot "
+                "WHERE sku=? AND ts>=? ORDER BY ts ASC",
+                (sku, since),
+            ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_decision_markers(self, sku: str, days: int) -> list[dict]:
+    def get_decision_markers(self, sku: str, days: int,
+                             campaign_id: str | None = None) -> list[dict]:
         """Правки биддера для маркеров на графике ставки. Причина едет вместе
         с точкой: без неё маркер показывает ЧТО произошло, но не ПОЧЕМУ, а
-        ценность графика именно во втором."""
+        ценность графика именно во втором.
+
+        campaign_id сужает до решений конкретной кампании — см. get_snapshot_series."""
         since = int(time.time()) - days * 86400
-        rows = self._conn.execute(
-            "SELECT ts, action, old_bid, new_bid, reason FROM decisions_log "
-            "WHERE sku=? AND ts>=? ORDER BY ts ASC",
-            (sku, since),
-        ).fetchall()
+        if campaign_id is not None:
+            rows = self._conn.execute(
+                "SELECT ts, action, old_bid, new_bid, reason FROM decisions_log "
+                "WHERE sku=? AND ts>=? AND campaign_id=? ORDER BY ts ASC",
+                (sku, since, campaign_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT ts, action, old_bid, new_bid, reason FROM decisions_log "
+                "WHERE sku=? AND ts>=? ORDER BY ts ASC",
+                (sku, since),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def get_metrics_for_day(self, day: str) -> list[dict]:

@@ -62,8 +62,19 @@ def build_router(ctx: ApiContext) -> APIRouter:
                     entry = by_sku.setdefault(row["sku"], {
                         "merchant_sku": row["merchant_sku"],
                         "bid": row["bid"],
+                        "bid_ts": row["ts"],
                         "campaign_ids": [],
                     })
+                    # Ставка в списке — из САМОГО СВЕЖЕГО снапшота среди
+                    # кампаний товара, а не от первой встреченной (порядок
+                    # кампаний здесь — по алфавиту id, к активности отношения
+                    # не имеет). Иначе список мог бы показать ставку неактивной
+                    # кампании рядом со статусом «активен» от другой.
+                    if row["ts"] is not None and (
+                            entry["bid_ts"] is None or row["ts"] > entry["bid_ts"]):
+                        entry["bid"] = row["bid"]
+                        entry["merchant_sku"] = row["merchant_sku"]
+                        entry["bid_ts"] = row["ts"]
                     entry["campaign_ids"].append(cid)
 
             out = []
@@ -117,7 +128,8 @@ def build_router(ctx: ApiContext) -> APIRouter:
         with open_store(ctx) as store:
             values, owned = _effective(store, campaign_id, sku)
             ctl = store.get_product_control(campaign_id, sku)
-            decisions = store.get_decisions_for_sku_day(day, sku, 20, 0)
+            decisions = store.get_decisions_for_sku_day(
+                day, sku, 20, 0, campaign_id=campaign_id)
             name = store.get_sku_name_map().get(sku)
         return {
             "sku": sku, "campaign_id": campaign_id, "name": name,
@@ -152,9 +164,14 @@ def build_router(ctx: ApiContext) -> APIRouter:
         сетку точек нельзя — получится ложь на обеих осях."""
         days = max(1, min(int(days), 90))
         with open_store(ctx) as store:
-            ticks = store.get_snapshot_series(sku, days)
+            # Ставка и решение — величины уровня кампании (в отличие от
+            # `daily`, которая остаётся sku-wide — выручка к кампаниям не
+            # привязана). Коридор в ответе посчитан для КОНКРЕТНОЙ кампании
+            # из пути — ряды обязаны быть её же, иначе ответ противоречит
+            # сам себе.
+            ticks = store.get_snapshot_series(sku, days, campaign_id=campaign_id)
             daily = store.get_metrics_series(sku, days)
-            marks = store.get_decision_markers(sku, days)
+            marks = store.get_decision_markers(sku, days, campaign_id=campaign_id)
             values, _ = _effective(store, campaign_id, sku)
         return {
             "ticks": ticks,

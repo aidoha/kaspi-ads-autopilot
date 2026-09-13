@@ -130,7 +130,9 @@ def create_app() -> FastAPI:
     except ImportError:
         pass
 
-    app = FastAPI()
+    # redirect_slashes=False: требование проекта — /api/* никогда не редиректит.
+    # 307 на слэше отдал бы фронту редирект там, где он ждёт данные или ошибку.
+    app = FastAPI(redirect_slashes=False)
 
     # Секрет сессий обязателен: без него SessionMiddleware подписывал бы куки
     # публичным дефолтом — любой мог бы подделать {"user": "admin"} и обойти логин
@@ -171,8 +173,23 @@ def create_app() -> FastAPI:
     app.include_router(api_products.build_router(api_ctx))
     app.include_router(api_settings.build_router(api_ctx, _live_refresh_snapshot))
 
+    from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
     from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(RequestValidationError)
+    async def _api_validation_error(request: Request, exc: RequestValidationError):
+        """Ошибки валидации параметров тоже обязаны иметь форму {"errors": [...]}.
+        Фронт разбирает ответы /api/* по одной форме; своя форма у 422 всплыла
+        бы как невнятный сбой разбора вместо понятного «неверный параметр»."""
+        errors = []
+        for e in exc.errors():
+            where = " → ".join(str(x) for x in e.get("loc", ()) if x != "body")
+            errors.append(f"{where}: {e.get('msg', 'неверное значение')}"
+                          if where else str(e.get("msg", "неверное значение")))
+        if not request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": exc.errors()}, status_code=422)
+        return JSONResponse({"errors": errors}, status_code=400)
 
     @app.exception_handler(StarletteHTTPException)
     async def _api_error(request: Request, exc: StarletteHTTPException):

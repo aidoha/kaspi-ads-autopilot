@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from core.config_resolver import OVERRIDABLE_FIELDS
 from core.settings_io import (SETTINGS_FIELDS, load_settings, save_settings,
                               validate_settings)
-from webui.api.deps import ApiContext, open_store, require_user
+from webui.api.deps import ApiContext, open_store, read_json, require_user
 
 ALMATY = ZoneInfo("Asia/Almaty")
 
@@ -27,7 +27,7 @@ def build_router(ctx: ApiContext, refresh_fn) -> APIRouter:
     @router.put("/products/{campaign_id}/{sku}/settings")
     async def put_product_settings(campaign_id: str, sku: str, request: Request,
                                    user: str = Depends(require_user)):
-        body = await request.json()
+        body = await read_json(request)
         values = body.get("values") or {}
         unknown = sorted(set(values) - set(OVERRIDABLE_FIELDS))
         if unknown:
@@ -76,32 +76,40 @@ def build_router(ctx: ApiContext, refresh_fn) -> APIRouter:
     @router.put("/products/{campaign_id}/{sku}/control")
     async def put_control(campaign_id: str, sku: str, request: Request,
                           user: str = Depends(require_user)):
-        body = await request.json()
-        try:
-            start = int(body.get("window_start", 0))
-            end = int(body.get("window_end", 24))
-            mask = int(body.get("days_mask", 127))
-        except (TypeError, ValueError):
-            _bad(["Окно и дни недели должны быть целыми числами"])
+        body = await read_json(request)
 
-        errors = []
-        if not (0 <= start <= 23):
-            errors.append("Начало окна — от 0 до 23")
-        if not (1 <= end <= 24):
-            errors.append("Конец окна — от 1 до 24")
-        if start >= end:
-            errors.append("Начало окна должно быть раньше конца")
-        if not (0 <= mask <= 127):
-            errors.append("Маска дней недели — от 0 до 127")
-        if errors:
-            _bad(errors)
-
+        # Отсутствующие поля обязаны СОХРАНЯТЬ текущее значение, а не
+        # дефолтиться в «круглосуточно, все дни»: основной сценарий фронта —
+        # тумблер enabled в списке, который шлёт только его. Дефолт здесь
+        # молча стирал бы кастомное расписание товара при каждом клике по
+        # тумблеру.
         with open_store(ctx) as store:
-            store.set_product_control(campaign_id, sku,
-                                      enabled=bool(body.get("enabled", True)),
-                                      window_start=start, window_end=end,
-                                      days_mask=mask, user=user,
-                                      ts=int(time.time()))
+            current = store.get_product_control(campaign_id, sku)
+            try:
+                start = int(body.get("window_start", current.window_start))
+                end = int(body.get("window_end", current.window_end))
+                mask = int(body.get("days_mask", current.days_mask))
+            except (TypeError, ValueError):
+                _bad(["Окно и дни недели должны быть целыми числами"])
+
+            errors = []
+            if not (0 <= start <= 23):
+                errors.append("Начало окна — от 0 до 23")
+            if not (1 <= end <= 24):
+                errors.append("Конец окна — от 1 до 24")
+            if start >= end:
+                errors.append("Начало окна должно быть раньше конца")
+            if not (0 <= mask <= 127):
+                errors.append("Маска дней недели — от 0 до 127")
+            if errors:
+                _bad(errors)
+
+            store.set_product_control(
+                campaign_id, sku,
+                enabled=bool(body.get("enabled", current.enabled)),
+                window_start=start, window_end=end,
+                days_mask=mask, user=user,
+                ts=int(time.time()))
         return {"ok": True}
 
     @router.get("/settings")
@@ -111,8 +119,14 @@ def build_router(ctx: ApiContext, refresh_fn) -> APIRouter:
 
     @router.put("/settings")
     async def put_settings(request: Request, user: str = Depends(require_user)):
-        body = await request.json()
+        body = await read_json(request)
         incoming = body.get("settings") or {}
+        # Симметрия с put_product_settings: опечатку в имени поля пользователь
+        # должен увидеть как явную ошибку, а не молча потерять — иначе он
+        # решит, что значение применилось, а оно просто проигнорировано.
+        unknown = sorted(set(incoming) - set(SETTINGS_FIELDS))
+        if unknown:
+            _bad([f"Неизвестное поле настроек: {f}" for f in unknown])
         cur = load_settings(ctx.rules_path)
         new = dict(cur)
         for f in SETTINGS_FIELDS:
@@ -134,7 +148,7 @@ def build_router(ctx: ApiContext, refresh_fn) -> APIRouter:
 
     @router.post("/dry-run")
     async def set_dry_run(request: Request, user: str = Depends(require_user)):
-        body = await request.json()
+        body = await read_json(request)
         want = bool(body.get("dry_run", True))
         cur = load_settings(ctx.rules_path)
         new = dict(cur)
