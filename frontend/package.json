@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:prod": "API_TARGET=https://89.207.250.28 vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",

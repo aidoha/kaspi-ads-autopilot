@@ -10,6 +10,8 @@ Jinja-панели больше нет (снесена в task-6 webui-redesign-
 """
 import os
 import tempfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
@@ -18,6 +20,8 @@ from core.settings_io import save_settings, SETTINGS_FIELDS
 from core.store import Store
 from webui.app import create_app
 from webui.auth import hash_password
+
+ALMATY = ZoneInfo("Asia/Almaty")
 
 
 def _client():
@@ -582,6 +586,41 @@ def test_global_settings_reject_min_bid_above_ceiling():
     print("✓ api: min_bid выше потолка отвергается и не переписывает конфиг")
 
 
+def test_bid_spark_is_one_point_per_day_not_every_tick():
+    """Спарклайн строки списка — подневный ряд, а не сырые тики воркера.
+
+    Воркер пишет снапшот раз в 5 минут: за две недели это ~4000 чисел на
+    товар. Отдать их в JSON и нарисовать в 84 пикселя = гребень-штрихкод, из
+    которого не читается ни уровень ставки, ни тренд (ровно так выглядела
+    колонка на боевой панели). Проверяем и количество точек, и то, что точка
+    суток — медиана: ночной пол дейпарта (треть суток на минималке) не
+    должен утягивать её вниз, иначе ряд снова превращается в пилу.
+    """
+    from webui.api.products import _spark
+
+    day = int(datetime(2026, 9, 10, 0, 0, tzinfo=ALMATY).timestamp())
+    ticks = []
+    for d in range(3):
+        for i in range(288):                      # сутки пятиминутными тиками
+            hour = i // 12
+            in_window = 9 <= hour < 23
+            ticks.append({"ts": day + d * 86400 + i * 300,
+                          "bid": (100.0 + d * 10) if in_window else 12.0})
+
+    spark = _spark(ticks, 14)
+    assert len(spark) == 3, f"ожидали точку на сутки, получили {len(spark)}"
+    assert spark == [100.0, 110.0, 120.0], spark   # медиана = рабочий уровень
+
+    # Дырки в данных не превращаются в нули: суток без ставки просто нет.
+    assert _spark([{"ts": day, "bid": None}], 14) == []
+    assert _spark([], 14) == []
+
+    # Окно ограничено запрошенным числом суток, считая от свежих.
+    long_ticks = [{"ts": day + d * 86400, "bid": float(d)} for d in range(10)]
+    assert _spark(long_ticks, 3) == [7.0, 8.0, 9.0]
+    print("✓ api: спарклайн ставки — точка на сутки (медиана), а не все тики")
+
+
 if __name__ == "__main__":
     test_api_without_session_returns_401_json_not_redirect()
     test_api_login_sets_session_and_me_returns_user()
@@ -618,5 +657,6 @@ if __name__ == "__main__":
     test_control_put_preserves_fields_that_were_not_sent()
     test_global_settings_reject_unknown_field()
     test_global_settings_reject_min_bid_above_ceiling()
+    test_bid_spark_is_one_point_per_day_not_every_tick()
     print("-" * 60)
     print("✓ Все проверки API прошли")

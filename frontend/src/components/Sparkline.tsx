@@ -35,12 +35,15 @@ export default function Sparkline({ values, w = 84, h = 24 }: Props) {
   const lastY = (h - pad - ((values[values.length - 1] - min) / span) * (h - pad * 2)).toFixed(1);
   const area = `${d} L${lastX} ${h - pad} L${firstX} ${h - pad} Z`;
 
+  // Цвет — --s-bid, как у ставки на большом графике: спарклайн показывает
+  // РЯД СТАВКИ (product.bid_spark), а красился в цвет цены клика — строка
+  // списка и график товара называли одну величину разными цветами.
   return (
     <svg className="spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
-      <path d={area} fill="var(--band)" />
-      <path d={d} fill="none" stroke="var(--s-cpc)" strokeWidth={1.6}
+      <path d={area} fill="var(--s-bid)" opacity={0.1} />
+      <path d={d} fill="none" stroke="var(--s-bid)" strokeWidth={1.4}
             strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={lastX} cy={lastY} r={2.6} fill="var(--s-cpc)"
+      <circle cx={lastX} cy={lastY} r={2.4} fill="var(--s-bid)"
               stroke="var(--surface)" strokeWidth={1.5} />
     </svg>
   );

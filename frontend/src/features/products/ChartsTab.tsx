@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, ApiError } from "../../api/client";
-import { fmtMoney, fmtPct, fmtTs } from "../../api/format";
+import { fmtMoney, fmtPct } from "../../api/format";
 import type { ChartMarker, ChartSeries } from "../../components/LineChart";
 import LineChart from "../../components/LineChart";
 import Segmented from "../../components/Segmented";
 import type { ProductSeries } from "./types";
+import { dailyMarkers, dailyMedian } from "./daySeries";
 
 type Period = "7" | "14" | "30";
 
@@ -15,14 +16,6 @@ type State =
 
 type Props = { campaignId: string; sku: string };
 
-// Разрыв тиков ставки: быстрый цикл воркера тикает раз в 5 минут круглосуточно
-// (worker.py:377, run_tick пишет снапшот безусловно, до веток дневного окна),
-// поэтому штатное расстояние между точками — 5 минут, а не «несколько раз в
-// сутки». Порог — четыре таких интервала (20 минут): переживает пару
-// пропущенных тиков (сбой сети по одной кампании run_cycle ловит и идёт
-// дальше, это даёт паузу 10-15 минут, не больше) и не рвёт линию на шуме, но
-// простой от получаса уже виден разрывом, а не нарисованной прямой.
-const TICK_MAX_GAP_SEC = 20 * 60;
 // Подневные ряды — ровно одна точка в календарный день: шаг больше одного
 // дня означает пропущенный день (см. task-4-brief, «Разрыв в данных»).
 const DAY_MAX_GAP = 1;
@@ -36,10 +29,22 @@ function dayIndex(day: string): number {
   return Math.round(Date.UTC(y, m - 1, d) / 86400000);
 }
 
-function fmtDayShort(day: string): string {
-  const [, m, d] = day.split("-");
-  return `${d}.${m}`;
+/** Номер дня → «06.09». Обратная к dayIndex, а не выборка из карты дней:
+ *  деления оси стоят на круглых датах, и среди них попадаются дни, которых
+ *  в данных нет (пропуск сбора) — по карте такая подпись вышла бы пустой. */
+function fmtDayIndex(x: number): string {
+  const dt = new Date(x * 86400000);
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}.${mm}`;
 }
+
+/** Шаги решётки оси X для подневных рядов, в днях. Шаги 4 и 5 нужны узким карточкам
+ *  малых графиков (CTR, конверсия): там влезает четыре подписи, и без них
+ *  лестница прыгала с трёх суток сразу на неделю — на двухнедельном
+ *  периоде под осью оставалось две даты. */
+const DAY_X_STEPS = [1, 2, 3, 4, 5, 7, 14, 28];
+
 
 function ruDays(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -110,37 +115,37 @@ export default function ChartsTab({ campaignId, sku }: Props) {
 function ChartsGrid({ series }: { series: ProductSeries }) {
   const { ticks, daily, decisions, corridor } = series;
 
-  // ---- ставка и цена клика — по тикам, своя шкала времени ---------------
-  const bidSeries: ChartSeries = { key: "bid", name: "Ставка", color: "var(--s-bid)",
-    data: ticks.map((t) => ({ x: t.ts, y: t.bid })) };
+  // ---- ставка и цена клика — точка на сутки, как остальные графики -------
+  // Раньше сюда уходили все 5-минутные тики воркера: ступени ночного
+  // дейпарта (ставка падает в пол) рисовали штрихкод-гребень вместо линии.
+  // Сводим к суткам (медиана — не съедет от ночного пола), и график
+  // получает тот же вид, что TACoS/CTR: плавная линия, точки на узлах,
+  // мягкая заливка. Ось X — та же день-индексная шкала, что у подневных.
+  const bidSeries: ChartSeries = { key: "bid", name: "Ставка", color: "var(--s-bid)", area: true,
+    data: dailyMedian(ticks, (t) => t.bid) };
   const cpcSeries: ChartSeries = { key: "cpc", name: "Цена клика", color: "var(--s-cpc)",
-    data: ticks.map((t) => ({ x: t.ts, y: t.avg_cpc })) };
-  const markers: ChartMarker[] = decisions
-    .filter((d) => d.action !== "hold" && d.new_bid !== null)
-    .map((d) => ({ x: d.ts, y: d.new_bid as number, kind: d.action as "raise" | "lower", label: d.reason }));
+    data: dailyMedian(ticks, (t) => t.avg_cpc) };
+  const markers: ChartMarker[] = dailyMarkers(decisions);
 
   // ---- подневные ряды — своя шкала: день-индекс, а не порядковый номер --
-  const dayLabel = new Map<number, string>();
-  const dayX = (day: string) => {
-    const x = dayIndex(day);
-    dayLabel.set(x, day);
-    return x;
-  };
-  const fmtDayX = (x: number) => fmtDayShort(dayLabel.get(x) ?? "");
+  const dayX = (day: string) => dayIndex(day);
 
-  const tacosSeries: ChartSeries = { key: "tacos", name: "TACoS", color: "var(--s-tacos)",
+  const tacosSeries: ChartSeries = { key: "tacos", name: "TACoS", color: "var(--s-tacos)", area: true,
     data: daily.map((d) => ({ x: dayX(d.day), y: d.tacos })) };
-  const ctrSeries: ChartSeries = { key: "ctr", name: "CTR", color: "var(--s-ctr)",
+  const ctrSeries: ChartSeries = { key: "ctr", name: "CTR", color: "var(--s-ctr)", area: true,
     data: daily.map((d) => ({ x: dayX(d.day), y: d.ctr })) };
-  const crSeries: ChartSeries = { key: "cr", name: "В корзину", color: "var(--s-cr)",
+  const crSeries: ChartSeries = { key: "cr", name: "В корзину", color: "var(--s-cr)", area: true,
     data: daily.map((d) => ({ x: dayX(d.day), y: d.cr })) };
 
   const breachDays = daily.filter((d) => d.tacos !== null && d.tacos > corridor.high).length;
+  // Коридор называется в подписи карточки, а не внутри полотна: там любое
+  // место рано или поздно занимает сама линия и текст ложится поверх неё.
+  const corridorLabel = `целевой коридор ${fmtPct(corridor.low)}–${fmtPct(corridor.high)}`;
   const tacosSub = breachDays > 0
-    ? `% от выручки · ${breachDays} ${ruDays(breachDays)} выше потолка`
-    : "% от выручки";
+    ? `${corridorLabel} · ${breachDays} ${ruDays(breachDays)} выше потолка`
+    : corridorLabel;
 
-  const hasTicks = ticks.some((t) => t.bid !== null || t.avg_cpc !== null);
+  const hasTicks = bidSeries.data.length > 0 || cpcSeries.data.length > 0;
   const hasTacos = daily.some((d) => d.tacos !== null);
   const hasCtr = daily.some((d) => d.ctr !== null);
   const hasCr = daily.some((d) => d.cr !== null);
@@ -150,7 +155,7 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
       <div className="chart-card">
         <div className="chart-head">
           <span className="chart-title">Ставка и цена клика</span>
-          <span className="chart-sub">₸ · треугольники — правки биддера</span>
+          <span className="chart-sub">₸ · ▲▼ под графиком — правки биддера</span>
           <span className="legend">
             <span><i style={{ background: "var(--s-bid)" }} />Ставка</span>
             <span><i style={{ background: "var(--s-cpc)" }} />Цена клика</span>
@@ -160,9 +165,10 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
           <LineChart
             series={[bidSeries, cpcSeries]}
             markers={markers}
-            maxGap={TICK_MAX_GAP_SEC}
+            maxGap={DAY_MAX_GAP}
             fmtValue={fmtBid}
-            fmtX={(x) => fmtTs(x)}
+            fmtX={fmtDayIndex}
+            xSteps={DAY_X_STEPS}
             height={210}
           />
         ) : <p className="empty-list">данные ещё копятся</p>}
@@ -176,11 +182,11 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
         {hasTacos ? (
           <LineChart
             series={[tacosSeries]}
-            corridor={{ low: corridor.low, high: corridor.high,
-                        label: `целевой коридор ${fmtPct(corridor.low)}–${fmtPct(corridor.high)}` }}
+            corridor={{ low: corridor.low, high: corridor.high, label: corridorLabel }}
             maxGap={DAY_MAX_GAP}
             fmtValue={fmtTacos}
-            fmtX={fmtDayX}
+            fmtX={fmtDayIndex}
+            xSteps={DAY_X_STEPS}
             height={190}
           />
         ) : <p className="empty-list">данные ещё копятся</p>}
@@ -193,7 +199,8 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
             <span className="chart-sub">% показов</span>
           </div>
           {hasCtr ? (
-            <LineChart series={[ctrSeries]} maxGap={DAY_MAX_GAP} fmtValue={fmtTacos} fmtX={fmtDayX} height={150} />
+            <LineChart series={[ctrSeries]} maxGap={DAY_MAX_GAP} fmtValue={fmtTacos}
+                       fmtX={fmtDayIndex} xSteps={DAY_X_STEPS} height={150} />
           ) : <p className="empty-list">данные ещё копятся</p>}
         </div>
         <div className="chart-card">
@@ -202,7 +209,8 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
             <span className="chart-sub">% кликов</span>
           </div>
           {hasCr ? (
-            <LineChart series={[crSeries]} maxGap={DAY_MAX_GAP} fmtValue={fmtTacos} fmtX={fmtDayX} height={150} />
+            <LineChart series={[crSeries]} maxGap={DAY_MAX_GAP} fmtValue={fmtTacos}
+                       fmtX={fmtDayIndex} xSteps={DAY_X_STEPS} height={150} />
           ) : <p className="empty-list">данные ещё копятся</p>}
         </div>
       </div>

@@ -13,6 +13,36 @@ from webui.api.deps import ApiContext, open_store, require_user
 ALMATY = ZoneInfo("Asia/Almaty")
 
 
+def _spark(ticks: list[dict], days: int) -> list[float]:
+    """Ряд ставки для спарклайна строки списка — по одной точке на сутки.
+
+    Раньше сюда уезжал ВЕСЬ ряд снапшотов: воркер тикает раз в 5 минут, то
+    есть четыре тысячи чисел за две недели на КАЖДЫЙ товар. В 84 пикселя
+    спарклайна это рисовалось гребнем-штрихкодом (ночной пол дейпарта и
+    дневной рабочий уровень чередуются четырнадцать раз на 84px — по шесть
+    пикселей на цикл), из которого нельзя прочитать ни уровень, ни тренд.
+
+    Точка суток — МЕДИАНА ставки за эти сутки, а не среднее и не последнее
+    значение: биддер держит ставку в поле почти весь день, поэтому медиана
+    равна рабочему уровню, и её не сдвигают ни ночной пол (треть суток на
+    минималке утянула бы среднее вниз), ни единичный выброс. Сутки берутся
+    по Алматы — по ним же живёт расписание биддера.
+    """
+    by_day: dict[str, list[float]] = {}
+    for t in ticks:
+        bid, ts = t.get("bid"), t.get("ts")
+        if bid is None or ts is None:
+            continue
+        day = datetime.fromtimestamp(ts, ALMATY).date().isoformat()
+        by_day.setdefault(day, []).append(float(bid))
+    out = []
+    for day in sorted(by_day)[-days:]:
+        vals = sorted(by_day[day])
+        mid = len(vals) // 2
+        out.append(vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2)
+    return out
+
+
 def _status(control, now) -> str:
     """Человеческий статус товара для колонки списка."""
     if control is None:
@@ -91,7 +121,7 @@ def build_router(ctx: ApiContext) -> APIRouter:
                 clicks = sum(p["clicks"] or 0 for p in series)
                 carts = sum(p["carts"] or 0 for p in series)
                 views = sum(p["views"] or 0 for p in series)
-                spark = [s["bid"] for s in store.get_snapshot_series(sku, days)]
+                spark = _spark(store.get_snapshot_series(sku, days), days)
 
                 # Контроль — по каждой кампании свой (None = дефолт «активен»).
                 # enabled = ведётся хоть где-то; status — от активной кампании,

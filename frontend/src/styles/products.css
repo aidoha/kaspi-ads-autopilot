@@ -4,190 +4,386 @@
    сегмент-контрол, теги TACoS. Раздел .detail — заглушка для панели
    товара, полную вёрстку добавит задача 3. */
 
-.wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px 96px; }
+.wrap {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
 
 /* ---- шапка ---- */
 .topbar {
-  position: sticky; top: 0; z-index: 30;
+  position: sticky;
+  top: 0;
+  z-index: 30;
   background: color-mix(in srgb, var(--page) 82%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hairline);
 }
 .topbar-inner {
-  max-width: 1060px; margin: 0 auto; padding: 0 24px;
-  height: 52px; display: flex; align-items: center; gap: 16px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 .brand {
-  font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
-  margin-right: auto; display: flex; align-items: center; gap: 9px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 .brand-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--good); flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--good);
+  flex: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent);
 }
-.brand small { color: var(--ink-3); font-weight: 400; font-size: 13px; }
+.brand small {
+  color: var(--ink-3);
+  font-weight: 400;
+  font-size: 13px;
+}
 
 select.plain {
-  font: inherit; font-size: 13px; color: var(--ink);
-  background: var(--surface); border: 1px solid var(--hairline-2);
-  border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
 }
 
 .segmented {
-  display: inline-flex; background: var(--surface-3);
-  border-radius: 9px; padding: 2px; gap: 2px;
+  display: inline-flex;
+  background: var(--surface-3);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
 }
 .segmented button {
-  font: inherit; font-size: 13px; font-weight: 500; color: var(--ink-2);
-  background: none; border: 0; border-radius: 7px;
-  padding: 4px 11px; cursor: pointer; white-space: nowrap;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 11px;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.segmented button[aria-pressed="true"] {
-  background: var(--surface); color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0,0,0,.10), 0 0 0 .5px rgba(0,0,0,.04);
+.segmented button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
 }
 
 .pill-run {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 600; letter-spacing: .01em;
-  padding: 4px 10px; border-radius: 999px;
-  background: var(--warn-bg); color: var(--warn);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 /* ---- заголовок страницы ---- */
-.pagehead { padding: 34px 0 22px; }
-h1 {
-  margin: 0 0 4px; font-size: 30px; font-weight: 640;
-  letter-spacing: -0.022em; text-wrap: balance;
+.pagehead {
+  padding: 34px 0 22px;
 }
-.sub { margin: 0; color: var(--ink-2); font-size: 14px; }
-.sub b { color: var(--ink); font-weight: 500; }
+h1 {
+  margin: 0 0 4px;
+  font-size: 30px;
+  font-weight: 640;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+.sub {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.sub b {
+  color: var(--ink);
+  font-weight: 500;
+}
 
 /* ---- строка KPI: без карточек, разделители на hairline ---- */
 .kpis {
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   border-top: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
 }
-.kpi { padding: 18px 20px 18px 0; }
-.kpi + .kpi { border-left: 1px solid var(--hairline); padding-left: 20px; }
+.kpi {
+  padding: 18px 20px 18px 0;
+}
+.kpi + .kpi {
+  border-left: 1px solid var(--hairline);
+  padding-left: 20px;
+}
 .kpi-label {
-  font-size: 11px; font-weight: 600; letter-spacing: .05em;
-  text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
 }
 .kpi-val {
-  font-size: 26px; font-weight: 600; letter-spacing: -0.025em;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
   line-height: 1.15;
 }
-.kpi-val .cur { font-size: 17px; font-weight: 500; color: var(--ink-2); }
-.kpi-note { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
-.kpi-note .up { color: var(--good); }
-.kpi-note .down { color: var(--crit); }
+.kpi-val .cur {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.kpi-note {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 3px;
+}
+.kpi-note .up {
+  color: var(--good);
+}
+.kpi-note .down {
+  color: var(--crit);
+}
 
 /* ---- заголовок секции ---- */
 .sec-head {
-  display: flex; align-items: baseline; gap: 12px;
-  margin: 36px 0 10px; padding: 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 36px 0 10px;
+  padding: 0 4px;
 }
-h2 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -0.015em; }
-.sec-head .count { color: var(--ink-3); font-size: 13px; margin-right: auto; }
+h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+.sec-head .count {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-right: auto;
+}
 .linkish {
-  font-size: 13px; color: var(--s-cpc); background: none; border: 0;
-  font: inherit; cursor: pointer; padding: 0;
+  font-size: 13px;
+  color: var(--s-cpc);
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
 }
 
 /* ---- сгруппированный список (в духе Apple Settings) ---- */
 .group {
-  background: var(--surface); border-radius: var(--radius);
-  box-shadow: 0 0 0 .5px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.05);
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
 
 .cols {
-  display: grid; align-items: center;
-  grid-template-columns: minmax(0,1fr) 92px 74px 66px 62px 66px 58px;
-  gap: 14px; padding: 9px 18px;
-  font-size: 11px; font-weight: 600; letter-spacing: .045em;
-  text-transform: uppercase; color: var(--ink-3);
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) 92px 74px 66px 62px 66px 58px;
+  gap: 14px;
+  padding: 9px 18px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  color: var(--ink-3);
   border-bottom: 1px solid var(--hairline);
   background: var(--surface-2);
 }
-.cols span:not(:first-child) { text-align: right; }
-.cols span:last-child { text-align: center; }
+.cols span:not(:first-child) {
+  text-align: right;
+}
+.cols span:last-child {
+  text-align: center;
+}
 
 .row {
-  display: grid; align-items: center;
-  grid-template-columns: minmax(0,1fr) 92px 74px 66px 62px 66px 58px;
-  gap: 14px; padding: 13px 18px;
-  cursor: pointer; background: none; border: 0; width: 100%;
-  font: inherit; color: inherit; text-align: left;
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) 92px 74px 66px 62px 66px 58px;
+  gap: 14px;
+  padding: 13px 18px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  width: 100%;
+  /* Без border-box ширина 100% — это ширина КОНТЕНТА, а padding 18px
+     добавляется сверху: строка на 36px шире шапки .cols и самой карточки
+     .group. Колонки строки уезжают вправо относительно заголовков, а тоггл
+     «Бот» вылезает за карточку и обрезается её overflow: hidden. */
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
-.row + .row, .detail + .row { border-top: 1px solid var(--hairline); }
-.row:hover { background: var(--surface-2); }
-.row:focus-visible { outline: 2px solid var(--s-cpc); outline-offset: -2px; }
+.row + .row,
+.detail + .row {
+  border-top: 1px solid var(--hairline);
+}
+.row:hover {
+  background: var(--surface-2);
+}
+.row:focus-visible {
+  outline: 2px solid var(--s-cpc);
+  outline-offset: -2px;
+}
 
 .pname {
-  display: flex; align-items: center; gap: 10px; min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 .chev {
-  flex: none; color: var(--ink-3); transition: transform .18s ease;
+  flex: none;
+  color: var(--ink-3);
+  transition: transform 0.18s ease;
   font-size: 11px;
 }
-.row[aria-expanded="true"] .chev { transform: rotate(90deg); }
-.pname-txt { min-width: 0; }
+.row[aria-expanded='true'] .chev {
+  transform: rotate(90deg);
+}
+.pname-txt {
+  min-width: 0;
+}
 .pname-txt strong {
-  display: block; font-size: 14.5px; font-weight: 520; letter-spacing: -0.01em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block;
+  font-size: 14.5px;
+  font-weight: 520;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pname-txt span {
-  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
 
 .num {
-  text-align: right; font-size: 14px;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.005em;
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
 }
-.num .unit { color: var(--ink-3); font-size: 12px; }
-.num.dim { color: var(--ink-2); }
+.num .unit {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.num.dim {
+  color: var(--ink-2);
+}
 
-.spark { display: block; margin-left: auto; }
+.spark {
+  display: block;
+  margin-left: auto;
+}
 
 .tag {
-  display: inline-block; font-size: 13px; font-weight: 600;
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  padding: 2px 7px; border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
 }
-.tag.good { background: var(--good-bg); color: var(--good); }
-.tag.warn { background: var(--warn-bg); color: var(--warn); }
-.tag.crit { background: var(--crit-bg); color: var(--crit); }
+.tag.good {
+  background: var(--good-bg);
+  color: var(--good);
+}
+.tag.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.tag.crit {
+  background: var(--crit-bg);
+  color: var(--crit);
+}
 
 /* ---- iOS-тоггл ---- */
 .switch {
-  display: block; margin: 0 auto; position: relative;
-  width: 44px; height: 26px; flex: none;
+  display: block;
+  margin: 0 auto;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex: none;
 }
 .switch input {
-  position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0;
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   cursor: pointer;
 }
-.switch input:disabled { cursor: default; }
+.switch input:disabled {
+  cursor: default;
+}
 .track {
-  display: block; width: 44px; height: 26px; border-radius: 999px;
-  background: var(--switch-off); transition: background .22s ease;
+  display: block;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--switch-off);
+  transition: background 0.22s ease;
   pointer-events: none;
 }
 .knob {
-  position: absolute; top: 2px; left: 2px;
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.28);
-  transition: transform .22s cubic-bezier(.4,.1,.2,1);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: transform 0.22s cubic-bezier(0.4, 0.1, 0.2, 1);
   pointer-events: none;
 }
-.switch input:checked ~ .track { background: var(--switch-on); }
-.switch input:checked ~ .knob { transform: translateX(18px); }
-.switch input:focus-visible ~ .track { outline: 2px solid var(--s-cpc); outline-offset: 2px; }
+.switch input:checked ~ .track {
+  background: var(--switch-on);
+}
+.switch input:checked ~ .knob {
+  transform: translateX(18px);
+}
+.switch input:focus-visible ~ .track {
+  outline: 2px solid var(--s-cpc);
+  outline-offset: 2px;
+}
 
 /* ---- панель товара ---- */
 .detail {
@@ -197,203 +393,590 @@ h2 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -0.015em; }
 }
 
 .detail-top {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 18px;
 }
-.detail-top .btn-primary { margin-left: auto; }
+.detail-top .btn-primary {
+  margin-left: auto;
+}
 
-.ai-soon { display: flex; align-items: center; gap: 10px; margin-left: auto; }
-.ai-soon .btn-primary { margin-left: 0; }
-.ai-soon-note { font-size: 12px; color: var(--ink-3); }
+.ai-soon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.ai-soon .btn-primary {
+  margin-left: 0;
+}
+.ai-soon-note {
+  font-size: 12px;
+  color: var(--ink-3);
+}
 
-.tabpanel[hidden] { display: none !important; }
+.tabpanel[hidden] {
+  display: none !important;
+}
 
-.footnote { margin-top: 14px; font-size: 12px; color: var(--ink-3); padding: 0 4px; }
+.footnote {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 0 4px;
+}
 
 .empty-list {
-  padding: 32px 18px; text-align: center; color: var(--ink-2); font-size: 14px;
+  padding: 32px 18px;
+  text-align: center;
+  color: var(--ink-2);
+  font-size: 14px;
 }
 
 /* ---- вкладка «Настройки»: 14 полей порогов ---- */
-.fields { display: grid; gap: 0; }
-.field {
-  display: grid; grid-template-columns: minmax(0,1fr) 118px 92px;
-  gap: 16px; align-items: center; padding: 11px 2px;
+.fields {
+  display: grid;
+  gap: 0;
 }
-.field + .field { border-top: 1px solid var(--hairline); }
-.field-label { font-size: 14px; display: block; }
-.field-label small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px; }
-.field input[type="number"] {
-  font: inherit; font-size: 14px; text-align: right;
+.field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 118px 92px;
+  gap: 16px;
+  align-items: center;
+  padding: 11px 2px;
+}
+.field + .field {
+  border-top: 1px solid var(--hairline);
+}
+.field-label {
+  font-size: 14px;
+  display: block;
+}
+.field-label small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-top: 1px;
+}
+.field input[type='number'] {
+  font: inherit;
+  font-size: 14px;
+  text-align: right;
   font-variant-numeric: tabular-nums;
-  padding: 6px 10px; border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid var(--hairline-2);
-  background: var(--surface); color: var(--ink); width: 100%;
+  background: var(--surface);
+  color: var(--ink);
+  width: 100%;
   /* Без border-box ширина 100% — это ширина КОНТЕНТА, а сверху добавляются
      padding и border: поле вылезает за отведённую колонку грида и
      наползает на подпись «наследовать» рядом. */
   box-sizing: border-box;
 }
-.field input:disabled { color: var(--ink-3); background: var(--surface-3); }
-.inh { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.inh span { font-size: 12px; color: var(--ink-3); }
-.switch.sm { width: 36px; height: 21px; margin: 0; }
-.switch.sm .track { width: 36px; height: 21px; }
-.switch.sm .knob { width: 17px; height: 17px; }
-.switch.sm input:checked ~ .knob { transform: translateX(15px); }
+.field input:disabled {
+  color: var(--ink-3);
+  background: var(--surface-3);
+}
+.inh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.inh span {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.switch.sm {
+  width: 36px;
+  height: 21px;
+  margin: 0;
+}
+.switch.sm .track {
+  width: 36px;
+  height: 21px;
+}
+.switch.sm .knob {
+  width: 17px;
+  height: 17px;
+}
+.switch.sm input:checked ~ .knob {
+  transform: translateX(15px);
+}
 
 /* ---- ошибки валидации настроек: показываем текст сервера дословно ---- */
 .errors {
-  background: var(--crit-bg); color: var(--crit); border-radius: 10px;
-  padding: 10px 14px; margin: 0 0 14px; font-size: 13px;
+  background: var(--crit-bg);
+  color: var(--crit);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
 }
-.errors p { margin: 0 0 6px; font-weight: 600; }
-.errors ul { margin: 0; padding-left: 18px; }
+.errors p {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.errors ul {
+  margin: 0;
+  padding-left: 18px;
+}
 
 /* ---- блок расписания (тоггл «активен», окно часов, дни недели) ---- */
-.sched-h { margin: 26px 0 8px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-.sched { display: grid; gap: 0; }
-.sched-row {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 11px 2px;
+.sched-h {
+  margin: 26px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
-.sched-row + .sched-row { border-top: 1px solid var(--hairline); }
+.sched {
+  display: grid;
+  gap: 0;
+}
+.sched-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 2px;
+}
+.sched-row + .sched-row {
+  border-top: 1px solid var(--hairline);
+}
 .sched-window {
-  display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
 }
 .sched-window input {
-  width: 48px; text-align: center; font: inherit; font-size: 14px;
-  font-variant-numeric: tabular-nums; padding: 4px 6px; border-radius: 7px;
-  border: 1px solid var(--hairline-2); background: var(--surface); color: var(--ink);
+  width: 48px;
+  text-align: center;
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  color: var(--ink);
   box-sizing: border-box;
 }
-.weekdays { display: flex; gap: 6px; flex-wrap: wrap; }
-.wd-btn {
-  font: inherit; font-size: 12px; font-weight: 600;
-  padding: 5px 10px; border-radius: 7px; cursor: pointer;
-  border: 1px solid var(--hairline-2); background: var(--surface); color: var(--ink-2);
+.weekdays {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-.wd-btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.wd-btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.wd-btn[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
 
 /* ---- превью решения — предсказание, ничего не отправлено ---- */
-.preview-block { margin-top: 20px; }
-.preview-note { font-size: 12px; color: var(--ink-3); margin: 8px 0 0; }
-.preview-result {
-  list-style: none; margin: 10px 0 0; padding: 0; font-size: 13.5px; color: var(--ink-2);
+.preview-block {
+  margin-top: 20px;
 }
-.preview-result li { padding: 6px 0; }
-.preview-result li + li { border-top: 1px solid var(--hairline); }
-.preview-result b { color: var(--ink); font-weight: 600; }
+.preview-note {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 8px 0 0;
+}
+.preview-result {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.preview-result li {
+  padding: 6px 0;
+}
+.preview-result li + li {
+  border-top: 1px solid var(--hairline);
+}
+.preview-result b {
+  color: var(--ink);
+  font-weight: 600;
+}
 
 /* ---- вкладка «Решения» ---- */
-.dec { display: grid; gap: 0; }
+.dec {
+  display: grid;
+  gap: 0;
+}
 .dec-row {
-  display: grid; grid-template-columns: 62px 96px minmax(0,1fr) 92px;
-  gap: 14px; align-items: center; padding: 10px 2px; font-size: 13.5px;
+  display: grid;
+  grid-template-columns: 62px 96px minmax(0, 1fr) 92px;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 2px;
+  font-size: 13.5px;
 }
-.dec-row + .dec-row { border-top: 1px solid var(--hairline); }
-.dec-time { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.dec-row + .dec-row {
+  border-top: 1px solid var(--hairline);
+}
+.dec-time {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
 .act {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
 }
-.act.raise { background: var(--good-bg); color: var(--good); }
-.act.lower { background: var(--crit-bg); color: var(--crit); }
-.act.hold  { background: var(--surface-3); color: var(--ink-2); }
-.dec-why { color: var(--ink-2); }
+.act.raise {
+  background: var(--good-bg);
+  color: var(--good);
+}
+.act.lower {
+  background: var(--crit-bg);
+  color: var(--crit);
+}
+.act.hold {
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+.dec-why {
+  color: var(--ink-2);
+}
 .dec-bid {
-  text-align: right; font-variant-numeric: tabular-nums;
-  font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-2);
 }
-.dec-bid b { color: var(--ink); font-weight: 600; }
+.dec-bid b {
+  color: var(--ink);
+  font-weight: 600;
+}
 
 /* ---- вкладка «Графики» ---- */
-.charts-period { display: flex; justify-content: flex-end; margin-bottom: 14px; }
-.charts { display: grid; gap: 16px; }
+.charts-period {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+.charts {
+  display: grid;
+  gap: 16px;
+}
 .chart-card {
-  background: var(--surface); border-radius: 12px; padding: 16px 16px 8px;
-  box-shadow: 0 0 0 .5px rgba(0,0,0,.06);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 16px 18px 10px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  /* Элемент грида по умолчанию min-width:auto, то есть не уже своего
+     содержимого. Полотно меряется по ширине карточки — и без этой строки
+     замер и ширина карточки разгоняли друг друга: SVG раздвигал трек,
+     трек давал больший замер, SVG становился ещё шире. */
+  min-width: 0;
 }
-.chart-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; flex-wrap: wrap; }
-.chart-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-.chart-sub { font-size: 12px; color: var(--ink-3); margin-right: auto; }
-.legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); }
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.chart-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.chart-sub {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-right: auto;
+}
+.legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+/* Ключ легенды — кружок того же вида, что узел на линии: связь «это тот
+   ряд» читается формой, а не только цветом. */
 .legend i {
-  display: inline-block; width: 10px; height: 10px; border-radius: 3px;
-  margin-right: 5px; vertical-align: -1px;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: 0;
 }
-.chart-wrap { position: relative; overflow-x: auto; }
-.chart-wrap svg { display: block; width: 100%; height: auto; }
-
-.small-mults { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-.tip {
-  position: absolute; pointer-events: none;
-  background: var(--surface); color: var(--ink);
-  border: 1px solid var(--hairline-2); border-radius: 9px;
-  padding: 7px 10px; font-size: 12px; line-height: 1.5;
-  box-shadow: 0 4px 14px rgba(0,0,0,.12);
-  white-space: nowrap; z-index: 5;
+/* Полотно меряется по ширине этого блока (ResizeObserver в LineChart) и
+   рисуется 1:1 в пикселях — поэтому здесь НЕТ width:100% на svg: растяжка
+   из фиксированного viewBox и увеличивала раньше шрифты и штрихи в
+   полтора раза. overflow скрыт, чтобы кадр между ресайзом и перерисовкой
+   не выдавал горизонтальную полосу прокрутки. */
+.chart-wrap {
+  position: relative;
+  min-width: 0;
+}
+/* Обрезает только полотно: кадр между ресайзом и перерисовкой не должен
+   выдавать горизонтальную полосу прокрутки. Тултип лежит СНАРУЖИ этого
+   слоя — иначе у левого и правого края его срезало бы. */
+.chart-plot {
+  overflow: hidden;
+  min-width: 0;
+}
+.chart-wrap svg {
+  display: block;
+}
+/* Числа осей и подписей концов — моноширинные цифры: подписи делений стоят
+   столбцом и прыгали бы по ширине от значения к значению. */
+.chart-wrap .ax {
   font-variant-numeric: tabular-nums;
 }
-.tip .k { color: var(--ink-3); }
+
+/* Ховер приезжает и уезжает плавно: кросс-хэйр и узлы — доезжают до
+   соседней точки, а не телепортируются. transform вместо cx/cy —
+   переходы работают только по CSS-свойствам, а x1/y1 линии таковыми не
+   являются. */
+.chart-wrap .xhair line {
+  transition: opacity 0.12s ease;
+}
+.chart-wrap .xdot {
+  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-wrap .xdot,
+  .chart-wrap .xhair line {
+    transition: none;
+  }
+}
+
+.small-mults {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.tip {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 8px 11px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  white-space: nowrap;
+  z-index: 5;
+  font-variant-numeric: tabular-nums;
+  /* Всегда в разметке, скрыт прозрачностью: появляйся он через удаление
+     узла, каждое движение курсора пересоздавало бы его и переход гас. */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, left 0.12s cubic-bezier(0.4, 0, 0.2, 1),
+              visibility 0s linear 0.12s;
+}
+.tip.on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.12s ease, left 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tip { transition: none; }
+}
+.tip b {
+  font-weight: 600;
+}
+.tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.tip-row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.tip-row .k {
+  color: var(--ink-2);
+  margin-right: auto;
+  padding-right: 10px;
+}
+/* Причина правки биддера — под значениями, с отбивкой волосяной линией:
+   это уже не «сколько», а «почему», и смешивать их в один столбец нельзя. */
+.tip-note {
+  display: block;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-2);
+  max-width: 260px;
+  white-space: normal;
+}
 
 /* ---- экран настроек биддера: пороги для всех товаров ----
    Того же языка, что .group/.field выше — в утверждённом макете этого
    экрана нет (там только товары), поэтому строим на тех же токенах и
    приёмах, ничего нового не изобретая. */
 .gfield {
-  display: grid; grid-template-columns: minmax(0,1fr) 170px;
-  gap: 16px; align-items: center; padding: 13px 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  gap: 16px;
+  align-items: center;
+  padding: 13px 18px;
 }
-.gfield + .gfield { border-top: 1px solid var(--hairline); }
-.gfield-label { font-size: 14px; display: block; }
-.gfield-label small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 2px; line-height: 1.45; }
-.gfield input[type="number"],
-.gfield input[type="text"] {
-  font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px;
-  border: 1px solid var(--hairline-2); background: var(--surface); color: var(--ink);
-  width: 100%; box-sizing: border-box;
+.gfield + .gfield {
+  border-top: 1px solid var(--hairline);
 }
-.gfield input[type="number"] { text-align: right; font-variant-numeric: tabular-nums; }
+.gfield-label {
+  font-size: 14px;
+  display: block;
+}
+.gfield-label small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-top: 2px;
+  line-height: 1.45;
+}
+.gfield input[type='number'],
+.gfield input[type='text'] {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  color: var(--ink);
+  width: 100%;
+  box-sizing: border-box;
+}
+.gfield input[type='number'] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
-.form-actions { margin: 18px 0 0; display: flex; gap: 12px; align-items: center; }
+.form-actions {
+  margin: 18px 0 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
 
 /* ---- карточка тестового режима: инфо слева, тоггл справа ---- */
 .toggle-row {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 18px; padding: 18px; flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  flex-wrap: wrap;
 }
-.toggle-row .info strong { display: block; margin-bottom: 4px; font-size: 14.5px; }
-.toggle-row .info p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.5; max-width: 560px; }
+.toggle-row .info strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14.5px;
+}
+.toggle-row .info p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 560px;
+}
 
 /* ---- аудит правок настроек ---- */
-.audit-wrap { overflow-x: auto; }
-table.audit { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-table.audit th, table.audit td {
-  text-align: left; padding: 10px 18px; border-bottom: 1px solid var(--hairline);
+.audit-wrap {
+  overflow-x: auto;
+}
+table.audit {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+table.audit th,
+table.audit td {
+  text-align: left;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--hairline);
   white-space: nowrap;
 }
 table.audit th {
-  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--ink-3); background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--surface-2);
 }
-table.audit tr:last-child td { border-bottom: none; }
+table.audit tr:last-child td {
+  border-bottom: none;
+}
 
 @media (max-width: 860px) {
-  .kpis { grid-template-columns: repeat(2, 1fr); }
-  .kpi:nth-child(odd) + .kpi { border-left: 1px solid var(--hairline); }
-  .cols { display: none; }
-  .row { grid-template-columns: minmax(0,1fr) 62px 58px; }
-  .row .hide-sm { display: none; }
-  .field { grid-template-columns: minmax(0,1fr) 96px; }
-  .field .inh { grid-column: 1 / -1; justify-content: flex-start; }
-  .gfield { grid-template-columns: minmax(0,1fr) 110px; }
-  .dec-row { grid-template-columns: 1fr; gap: 2px; padding: 10px 2px 12px; }
-  .dec-bid { text-align: left; }
-  .small-mults { grid-template-columns: 1fr; }
+  .kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .kpi:nth-child(odd) + .kpi {
+    border-left: 1px solid var(--hairline);
+  }
+  .cols {
+    display: none;
+  }
+  .row {
+    grid-template-columns: minmax(0, 1fr) 62px 58px;
+  }
+  .row .hide-sm {
+    display: none;
+  }
+  .field {
+    grid-template-columns: minmax(0, 1fr) 96px;
+  }
+  .field .inh {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+  .gfield {
+    grid-template-columns: minmax(0, 1fr) 110px;
+  }
+  .dec-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+    padding: 10px 2px 12px;
+  }
+  .dec-bid {
+    text-align: left;
+  }
+  .small-mults {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
+  * {
+    transition: none !important;
+  }
 }
