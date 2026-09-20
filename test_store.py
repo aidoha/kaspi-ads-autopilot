@@ -431,9 +431,16 @@ def test_metrics_series_folds_two_campaigns_into_one_day():
     """Товар в двух кампаниях даёт две строки на день с ОДИНАКОВОЙ выручкой.
     Ряд для графика обязан свернуть их в одну точку: расход и счётчики —
     суммой, выручка — один раз, производные — пересчётом из свёрнутых сумм.
-    Наивный SELECT задвоил бы выручку и показал бы ROAS вдвое лучше реального."""
+    Наивный SELECT задвоил бы выручку и показал бы ROAS вдвое лучше реального.
+
+    Дата — относительно «сегодня»: окно ряда календарное (см.
+    test_metrics_series_window_is_calendar_not_rows), и фиксированная дата в
+    прошлом однажды вываливается из него, роняя тест по календарю, а не по коду."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    day = (datetime.now(ZoneInfo("Asia/Almaty")).date() - timedelta(days=1)).isoformat()
     s = new_store()
-    common = dict(day="2026-09-12", sku="s1", merchant_sku="m1",
+    common = dict(day=day, sku="s1", merchant_sku="m1",
                   transactions=0, ts=1)
     s.upsert_metrics_daily(campaign_id="c1", cost=100, gmv=400, views=1000,
                            clicks=50, carts=2, ctr=0.05, cr=0.04,
@@ -461,8 +468,11 @@ def test_metrics_series_folds_two_campaigns_into_one_day():
 def test_metrics_series_keeps_unknown_revenue_unknown():
     """Если выручка за день не собрана (None), производные остаются None,
     а не превращаются в ноль."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    day = (datetime.now(ZoneInfo("Asia/Almaty")).date() - timedelta(days=1)).isoformat()
     s = new_store()
-    s.upsert_metrics_daily(day="2026-09-12", campaign_id="c1", sku="s1",
+    s.upsert_metrics_daily(day=day, campaign_id="c1", sku="s1",
                            merchant_sku="m1", cost=500, gmv=0, views=10,
                            clicks=5, carts=0, transactions=0, ctr=0.5,
                            cr=0.0, revenue=None, ts=1)
