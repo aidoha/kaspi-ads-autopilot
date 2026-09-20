@@ -5,7 +5,7 @@ import type { ChartMarker, ChartSeries } from "../../components/LineChart";
 import LineChart from "../../components/LineChart";
 import Segmented from "../../components/Segmented";
 import type { ProductSeries } from "./types";
-import { dailyMarkers, dailyMedian } from "./daySeries";
+import { dailyMarkers, dailyMedian, dailyVoids, dayIndex } from "./daySeries";
 
 type Period = "7" | "14" | "30";
 
@@ -20,14 +20,8 @@ type Props = { campaignId: string; sku: string };
 // дня означает пропущенный день (см. task-4-brief, «Разрыв в данных»).
 const DAY_MAX_GAP = 1;
 
-/** Календарный день "YYYY-MM-DD" → целый номер дня (UTC-эпоха в сутках).
- *  Нужен как числовая ось X для подневных рядов: пропущенный день должен
- *  дать реальный шаг 2, а не молчаливо схлопнуться до соседнего индекса
- *  массива — иначе разрыв в данных не разорвал бы линию (см. брифинг). */
-function dayIndex(day: string): number {
-  const [y, m, d] = day.split("-").map(Number);
-  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
-}
+// dayIndex («YYYY-MM-DD» → номер суток от эпохи) живёт в daySeries: та же
+// сетка кормит и линию TACoS, и метки dailyVoids.
 
 /** Номер дня → «06.09». Обратная к dayIndex, а не выборка из карты дней:
  *  деления оси стоят на круглых датах, и среди них попадаются дни, которых
@@ -137,16 +131,25 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
   const crSeries: ChartSeries = { key: "cr", name: "В корзину", color: "var(--s-cr)", area: true,
     data: daily.map((d) => ({ x: dayX(d.day), y: d.cr })) };
 
+  // Дни без TACoS (расход без выручки / товар стоял) — метки на полотне,
+  // а не разрыв: обрыв линии сам по себе не объясняет, почему её нет.
+  const tacosVoids = dailyVoids(daily);
+  const noSalesDays = tacosVoids.filter((v) => v.tone === "warn").length;
+
   const breachDays = daily.filter((d) => d.tacos !== null && d.tacos > corridor.high).length;
   // Коридор называется в подписи карточки, а не внутри полотна: там любое
   // место рано или поздно занимает сама линия и текст ложится поверх неё.
   const corridorLabel = `целевой коридор ${fmtPct(corridor.low)}–${fmtPct(corridor.high)}`;
-  const tacosSub = breachDays > 0
-    ? `${corridorLabel} · ${breachDays} ${ruDays(breachDays)} выше потолка`
-    : corridorLabel;
+  const tacosSub = [
+    corridorLabel,
+    breachDays > 0 ? `${breachDays} ${ruDays(breachDays)} выше потолка` : null,
+    noSalesDays > 0 ? `${noSalesDays} ${ruDays(noSalesDays)} без продаж` : null,
+  ].filter(Boolean).join(" · ");
 
   const hasTicks = bidSeries.data.length > 0 || cpcSeries.data.length > 0;
-  const hasTacos = daily.some((d) => d.tacos !== null);
+  // Метки «без продаж» — тоже содержимое: товар с расходом, но без единой
+  // продажи за период иначе спрятался бы под «данные ещё копятся».
+  const hasTacos = daily.some((d) => d.tacos !== null) || tacosVoids.length > 0;
   const hasCtr = daily.some((d) => d.ctr !== null);
   const hasCr = daily.some((d) => d.cr !== null);
 
@@ -183,6 +186,7 @@ function ChartsGrid({ series }: { series: ProductSeries }) {
           <LineChart
             series={[tacosSeries]}
             corridor={{ low: corridor.low, high: corridor.high, label: corridorLabel }}
+            voids={tacosVoids}
             maxGap={DAY_MAX_GAP}
             fmtValue={fmtTacos}
             fmtX={fmtDayIndex}

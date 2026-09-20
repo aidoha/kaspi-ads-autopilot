@@ -28,6 +28,12 @@ export type ChartMarker = {
  *  карточки и в описание для скринридера. */
 export type Corridor = { low: number; high: number; label: string };
 
+/** Метка дня, где значение НЕ определено (не ноль и не пропуск сбора).
+ *  Для TACoS это «расход без выручки» (TACoS = ∞) или «не рекламировался»:
+ *  точки на линии быть не может — рисуем значок на базовой линии, а `label`
+ *  всплывает в тултипе. `tone` задаёт цвет: warn — тревожный, muted — тихий. */
+export type VoidMark = { x: number; tone: "warn" | "muted"; label: string };
+
 type Props = {
   series: ChartSeries[];
   /** Порог разрыва по X (в тех же единицах, что и `x` точек): день-индекс
@@ -49,6 +55,8 @@ type Props = {
   height?: number;
   corridor?: Corridor;
   markers?: ChartMarker[];
+  /** Дни без определённого значения — значок на базовой линии + подсказка. */
+  voids?: VoidMark[];
 };
 
 const L = 52, R = 66, T = 14, B = 26;
@@ -64,7 +72,7 @@ const DOTS_MAX = 40;      // больше точек — узлы сливают
  *  карточку (~1180px), и вместе с ним в полтора раза росли шрифты и толщина
  *  линий — отсюда были гигантские подписи и жирные штрихи. */
 export default function LineChart({
-  series, maxGap, fmtValue, fmtX, fmtXAxis, xSteps, xOrigin = 0, height = 200, corridor, markers,
+  series, maxGap, fmtValue, fmtX, fmtXAxis, xSteps, xOrigin = 0, height = 200, corridor, markers, voids,
 }: Props) {
   // Хуки объявлены до любого раннего выхода: ниже есть `return null` для
   // пустых данных, и вызов хука после него менял бы их порядок между
@@ -162,6 +170,11 @@ export default function LineChart({
   // дорожке говорит ЧТО произошло, а ценность графика — в ПОЧЕМУ.
   const hoverMarks = hoverX === null || !markers ? [] :
     markers.filter((m) => Math.abs(m.x - hoverX) <= maxGap / 2);
+  // Метки дней без значения (TACoS не определён) — на том же X, что «пустая»
+  // точка ряда, поэтому наведение по столбцу их и ловит.
+  const hoverVoids = hoverX === null || !voids ? [] :
+    voids.filter((v) => Math.abs(v.x - hoverX) <= maxGap / 2);
+  const voidColor = (tone: VoidMark["tone"]) => tone === "warn" ? "var(--crit)" : "var(--ink-3)";
 
   return (
     <div className="chart-wrap" ref={wrapRef}>
@@ -227,6 +240,14 @@ export default function LineChart({
             </g>
           );
         })}
+
+        {/* Метки дней без TACoS: полый кружок на базовой линии. Полый — чтобы
+           не спутать с узлом ряда (те залиты); pointerEvents=none — наведение
+           ловит прозрачный слой ниже, а подпись уходит в тултип. */}
+        {voids && voids.map((v, i) => (
+          <circle key={`v${i}`} cx={X(v.x)} cy={baseY} r={3.6} fill="var(--surface)"
+                  stroke={voidColor(v.tone)} strokeWidth={2} pointerEvents="none" />
+        ))}
 
         {hoverX !== null && (
           <g className="xhair">
@@ -298,6 +319,11 @@ export default function LineChart({
             {hoverMarks.map((m, i) => (
               <span key={`m${i}`} className="tip-note">
                 {m.kind === "raise" ? "▲" : "▼"} {m.label}
+              </span>
+            ))}
+            {hoverVoids.map((v, i) => (
+              <span key={`v${i}`} className="tip-note" style={{ color: voidColor(v.tone) }}>
+                ⊘ {v.label}
               </span>
             ))}
           </>

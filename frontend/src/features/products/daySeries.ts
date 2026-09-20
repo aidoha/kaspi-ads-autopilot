@@ -2,8 +2,8 @@
 // отдельным модулем с тестом: ошибка здесь рисует молча неверную картинку
 // (съехавшие сутки, ноль вместо дырки), и на глаз её не поймать.
 
-import type { Tick, DecisionMarker } from "./types";
-import type { ChartMarker } from "../../components/LineChart";
+import type { DailyPoint, Tick, DecisionMarker } from "./types";
+import type { ChartMarker, VoidMark } from "../../components/LineChart";
 
 /** Алматы — UTC+5 круглый год (в Казахстане нет перевода часов). Биддер
  *  живёт по этому поясу, и сутки графика обязаны совпадать с сутками его
@@ -76,6 +76,32 @@ export function dailyMarkers(decisions: DecisionMarker[]): ChartMarker[] {
       kind,
       label: n > 1 ? `${n} ${plural(n)}: ${g.reasons.join("; ")}` : g.reasons[0],
     });
+  }
+  return out.sort((a, b) => a.x - b.x);
+}
+
+/** Календарный день "YYYY-MM-DD" → целый номер дня (UTC-эпоха в сутках) —
+ *  числовая ось X подневных рядов. Та же функция кормит и линию TACoS
+ *  (ChartsTab), и метки dailyVoids: обе обязаны стоять на одной сетке. */
+export function dayIndex(day: string): number {
+  const [y, m, d] = day.split("-").map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
+}
+
+/** Дни, где TACoS не определён, — в метки для полотна (не в линию).
+ *  Различаем два случая, потому что действие владельца разное:
+ *    • расход был, а выручки ноль → «деньги без заказов» (TACoS = ∞, тревога);
+ *    • ни расхода, ни выручки → «реклама не крутилась» (тихо, товар стоял).
+ *  revenue === null — это НЕ ноль, а «Shop API за день не опрашивали»:
+ *  честная дырка в данных, метку не ставим (линия просто рвётся). */
+export function dailyVoids(daily: DailyPoint[]): VoidMark[] {
+  const out: VoidMark[] = [];
+  for (const d of daily) {
+    if (d.tacos !== null || d.revenue !== 0) continue;
+    const spent = (d.cost ?? 0) > 0;
+    out.push(spent
+      ? { x: dayIndex(d.day), tone: "warn", label: "деньги без заказов" }
+      : { x: dayIndex(d.day), tone: "muted", label: "реклама не крутилась" });
   }
   return out.sort((a, b) => a.x - b.x);
 }

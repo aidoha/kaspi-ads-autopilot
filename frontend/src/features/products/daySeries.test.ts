@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { dailyMarkers, dailyMedian, tickDay } from "./daySeries";
-import type { Tick, DecisionMarker } from "./types";
+import { dailyMarkers, dailyMedian, dailyVoids, dayIndex, tickDay } from "./daySeries";
+import type { DailyPoint, Tick, DecisionMarker } from "./types";
 
 // 2026-09-10 00:00 Алматы = 1789318800 UTC. От него и пляшем.
 const D10 = 1789318800;
@@ -67,5 +67,46 @@ describe("маркеры решений на суточной оси", () => {
       { ts: D10, action: "raise", old_bid: 50, new_bid: null, reason: "нет ставки" },
     ]);
     expect(out).toEqual([]);
+  });
+});
+
+describe("метки дней без TACoS (deleted point → void)", () => {
+  const dp = (day: string, p: Partial<DailyPoint>): DailyPoint => ({
+    day, cost: null, revenue: null, gmv: null, views: null, clicks: null,
+    carts: null, transactions: null, tacos: null, roas: null, roas_gmv: null,
+    ctr: null, cr: null, ...p,
+  });
+
+  it("расход есть, продаж ноль → янтарная метка «деньги без заказов»", () => {
+    const out = dailyVoids([dp("2026-09-19", { cost: 450, revenue: 0, tacos: null })]);
+    expect(out).toEqual([
+      { x: dayIndex("2026-09-19"), tone: "warn", label: "деньги без заказов" },
+    ]);
+  });
+
+  it("ни расхода, ни продаж → приглушённая метка «реклама не крутилась»", () => {
+    const out = dailyVoids([dp("2026-09-20", { cost: 0, revenue: 0, tacos: null })]);
+    expect(out).toEqual([
+      { x: dayIndex("2026-09-20"), tone: "muted", label: "реклама не крутилась" },
+    ]);
+  });
+
+  it("выручка не собрана (revenue=null) → это дырка в данных, метки нет", () => {
+    expect(dailyVoids([dp("2026-09-20", { cost: 200, revenue: null, tacos: null })]))
+      .toEqual([]);
+  });
+
+  it("день с настоящим TACoS метки не даёт", () => {
+    expect(dailyVoids([dp("2026-09-18", { cost: 356, revenue: 13190, tacos: 0.027 })]))
+      .toEqual([]);
+  });
+
+  it("несколько дней сортируются по оси X", () => {
+    const out = dailyVoids([
+      dp("2026-09-20", { cost: 0, revenue: 0, tacos: null }),
+      dp("2026-09-18", { cost: 356, revenue: 13190, tacos: 0.027 }),
+      dp("2026-09-19", { cost: 450, revenue: 0, tacos: null }),
+    ]);
+    expect(out.map((v) => v.x)).toEqual([dayIndex("2026-09-19"), dayIndex("2026-09-20")]);
   });
 });
