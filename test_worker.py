@@ -379,6 +379,40 @@ def test_load_cfg_safe_hot_reload_and_fallback():
     print("✓ worker: load_cfg_safe — hot-reload + фолбэк на прошлый cfg при битом yaml")
 
 
+def test_slow_schedule_fires_every_30_min_in_active_window():
+    """Медленный контур — единственный, кто умеет ПОДНИМАТЬ ставку. Пока он ходил
+    5 раз в сутки по фиксированным часам, момент подъёма определялся расписанием,
+    а не данными: от пола до потолка ставка ползла почти сутки.
+
+    Проверяем само поведение триггера (перечисляем срабатывания за сутки), а не
+    строку с расписанием — иначе тест не отличит рабочее расписание от опечатки.
+    """
+    from datetime import timedelta
+    from apscheduler.triggers.cron import CronTrigger
+    from worker import slow_trigger_kwargs
+
+    trig = CronTrigger(timezone=ALMATY, **slow_trigger_kwargs())
+    start = datetime(2026, 8, 9, 0, 0, tzinfo=ALMATY)
+    end = start + timedelta(days=1)
+
+    fires, t = [], trig.get_next_fire_time(None, start)
+    while t and t < end:
+        fires.append(t)
+        t = trig.get_next_fire_time(t, t + timedelta(seconds=1))
+
+    gaps = {(b - a).total_seconds() / 60 for a, b in zip(fires, fires[1:])}
+    assert gaps == {30}, f"шаг расписания не 30 минут: {sorted(gaps)}"
+
+    hours = {f.hour for f in fires}
+    assert hours >= set(range(9, 22)), f"торговый день покрыт не весь: {sorted(hours)}"
+    # Ночью новых данных не приходит (кликов нет, выручка заморожена), а шаг
+    # биддер бы делал — и к утру упирался бы в потолок вслепую.
+    assert not (hours & set(range(0, 7))), f"ночные срабатывания: {sorted(hours)}"
+
+    print(f"✓ worker: медленный контур — {len(fires)} срабатываний/сутки "
+          f"с шагом 30 мин ({fires[0]:%H:%M}–{fires[-1]:%H:%M}), ночью молчит")
+
+
 def test_daily_metrics_asks_marketing_per_day_and_writes_rows():
     """Кабинет отдаёт счётчики за ПЕРИОД запроса, поэтому за честный день
     спрашиваем StartDate = EndDate = этот день. Проверяем именно это."""
@@ -563,6 +597,7 @@ if __name__ == "__main__":
     test_run_tick_restores_parked_bid_in_morning()
     test_run_tick_fast_paces_by_time_of_day()
     test_load_cfg_safe_hot_reload_and_fallback()
+    test_slow_schedule_fires_every_30_min_in_active_window()
     test_daily_metrics_asks_marketing_per_day_and_writes_rows()
     test_daily_metrics_fetches_revenue_once_per_day()
     test_daily_metrics_isolates_failing_campaign()
