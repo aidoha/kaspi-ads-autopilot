@@ -635,6 +635,41 @@ def test_count_ai_calls_counts_forced_recomputes():
     print("✓ count_ai_calls считает вызовы, а не строки")
 
 
+def test_hidden_skus_roundtrip_and_unhide():
+    """Скрытие — свойство ТОВАРА, не пары товар-кампания: в списке панели
+    одна строка на sku, и «спрятал в одной кампании, видно в другой» было бы
+    бессмыслицей."""
+    s = new_store()
+    assert s.hidden_skus() == set()
+
+    s.set_sku_hidden("166350900", True, user="admin", ts=100)
+    s.set_sku_hidden("166350902", True, user="admin", ts=101)
+    assert s.hidden_skus() == {"166350900", "166350902"}
+
+    s.set_sku_hidden("166350900", False, user="admin", ts=102)
+    assert s.hidden_skus() == {"166350902"}
+
+    # Снять скрытие с того, кто и не был скрыт — не ошибка, а no-op.
+    s.set_sku_hidden("нет-такого", False, user="admin", ts=103)
+    assert s.hidden_skus() == {"166350902"}
+    print("✓ product_hidden: скрыть, показать, повторное снятие")
+
+
+def test_hiding_sku_does_not_touch_product_control():
+    """Крестик в списке не должен молча менять расписание или выключать
+    биддера — это разные таблицы и разные намерения."""
+    s = new_store()
+    s.set_product_control("c1", "166350900", enabled=True, window_start=9,
+                          window_end=21, days_mask=31, user="admin", ts=1)
+
+    s.set_sku_hidden("166350900", True, user="admin", ts=100)
+
+    ctl = s.get_product_control("c1", "166350900")
+    assert ctl.enabled is True, ctl
+    assert (ctl.window_start, ctl.window_end, ctl.days_mask) == (9, 21, 31), ctl
+    print("✓ скрытие товара не трогает product_control")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -667,5 +702,7 @@ if __name__ == "__main__":
     test_snapshot_and_decision_series_can_scope_by_campaign()
     test_ai_insight_roundtrip_and_overwrite()
     test_count_ai_calls_counts_forced_recomputes()
+    test_hidden_skus_roundtrip_and_unhide()
+    test_hiding_sku_does_not_touch_product_control()
     print("-" * 60)
     print("✓ Все проверки store прошли")

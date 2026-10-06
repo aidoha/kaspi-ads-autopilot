@@ -464,7 +464,81 @@ def test_write_endpoints_require_login():
     assert c.post("/api/dry-run", json={"dry_run": True},
                   follow_redirects=False).status_code == 401
     assert c.post("/api/refresh", follow_redirects=False).status_code == 401
+    assert c.put("/api/products/s1/visibility", json={"hidden": True},
+                 follow_redirects=False).status_code == 401
     print("✓ api: запись требует входа")
+
+
+def test_products_list_marks_hidden_without_dropping_them():
+    """Сервер НЕ фильтрует скрытые: раздел «Скрытые» в панели показывает те
+    же метрики и тоггл, значит данные нужны целиком. Фронт разносит список
+    на два по флагу."""
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+    _seed_snapshot(db, "c1", "s2", bid=50, ts=1_700_000_000)
+
+    items = c.get("/api/products?days=7").json()["products"]
+    assert [p["hidden"] for p in items] == [False, False], items
+
+    s = Store(db)
+    try:
+        s.set_sku_hidden("s1", True, user="admin", ts=1)
+    finally:
+        s.close()
+
+    items = c.get("/api/products?days=7").json()["products"]
+    assert len(items) == 2, items
+    assert {p["sku"]: p["hidden"] for p in items} == {"s1": True, "s2": False}, items
+    print("✓ api: список помечает скрытые, но не выбрасывает их")
+
+
+def test_put_visibility_hides_and_restores_product():
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+
+    r = c.put("/api/products/s1/visibility", json={"hidden": True})
+    assert r.status_code == 200, r.text
+    assert c.get("/api/products?days=7").json()["products"][0]["hidden"] is True
+
+    r = c.put("/api/products/s1/visibility", json={"hidden": False})
+    assert r.status_code == 200, r.text
+    assert c.get("/api/products?days=7").json()["products"][0]["hidden"] is False
+    print("✓ api: visibility прячет товар и возвращает обратно")
+
+
+def test_put_visibility_leaves_the_bidder_alone():
+    """Скрытие — только про глаза. Если бы крестик гасил биддера, владелец
+    получил бы молчаливую остановку ставок вместо уборки в списке."""
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+    s = Store(db)
+    try:
+        s.set_product_control("c1", "s1", enabled=True, window_start=9,
+                              window_end=21, days_mask=31, user="admin", ts=1)
+    finally:
+        s.close()
+
+    assert c.put("/api/products/s1/visibility",
+                 json={"hidden": True}).status_code == 200
+
+    p = c.get("/api/products?days=7").json()["products"][0]
+    assert p["hidden"] is True and p["enabled"] is True, p
+    ctl = c.get("/api/products/c1/s1").json()["control"]
+    assert ctl == {"enabled": True, "window_start": 9, "window_end": 21,
+                   "days_mask": 31}, ctl
+    print("✓ api: скрытие не выключает биддера и не трогает расписание")
+
+
+def test_put_visibility_rejects_body_without_boolean_hidden():
+    c, _, db = _logged_in()
+    _seed_snapshot(db, "c1", "s1", bid=40, ts=1_700_000_000)
+
+    for body in ({}, {"hidden": "да"}, {"hidden": 1}):
+        r = c.put("/api/products/s1/visibility", json=body)
+        assert r.status_code == 400, (body, r.status_code, r.text)
+        assert r.json()["errors"], r.json()
+    assert c.get("/api/products?days=7").json()["products"][0]["hidden"] is False
+    print("✓ api: visibility требует булево hidden, иначе 400")
 
 
 def test_refresh_is_best_effort_and_does_not_crash():
@@ -658,5 +732,9 @@ if __name__ == "__main__":
     test_global_settings_reject_unknown_field()
     test_global_settings_reject_min_bid_above_ceiling()
     test_bid_spark_is_one_point_per_day_not_every_tick()
+    test_products_list_marks_hidden_without_dropping_them()
+    test_put_visibility_hides_and_restores_product()
+    test_put_visibility_leaves_the_bidder_alone()
+    test_put_visibility_rejects_body_without_boolean_hidden()
     print("-" * 60)
     print("✓ Все проверки API прошли")

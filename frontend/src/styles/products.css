@@ -293,6 +293,105 @@ h2 {
   color: var(--ink-3);
 }
 
+/* Кнопка «скрыть»/«вернуть» живёт ВНУТРИ ячейки названия, а не восьмой
+   колонкой: сетка .row из семи колонок общая с шапкой .cols, и новая колонка
+   увела бы все числа вправо от их заголовков, а тоггл «Бот» — за край
+   карточки. margin-left:auto прижимает её к правому краю ячейки. */
+.row-hide {
+  flex: none;
+  margin-left: auto;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.row:hover .row-hide,
+.row-hide:focus-visible {
+  opacity: 1;
+}
+.row-hide:hover {
+  background: var(--surface);
+  color: var(--ink-1);
+}
+.row-hide:focus-visible {
+  outline: 2px solid var(--s-cpc);
+  outline-offset: -2px;
+}
+.row-hide:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+/* На тач-экранах ховера нет — кнопка просто всегда приглушена, иначе до неё
+   не добраться вовсе. */
+@media (hover: none) {
+  .row-hide {
+    opacity: 0.6;
+  }
+}
+
+/* Скрытая строка приглушена, но читается при наведении — её метрики нужны,
+   когда решаешь, вернуть товар или нет. Кнопка «вернуть» яркая всегда:
+   она тут главное действие. */
+.row-muted {
+  opacity: 0.55;
+}
+.row-muted:hover,
+.row-muted:focus-within {
+  opacity: 1;
+}
+.row-muted .row-hide {
+  opacity: 1;
+  color: var(--s-cpc);
+}
+
+/* Полоса-раскрывашка «Скрытые · N» — последняя строка карточки списка,
+   оформлена как шапка колонок, чтобы читалась разделителем, а не товаром. */
+.hidden-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 18px;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  text-align: left;
+}
+.hidden-head:hover {
+  color: var(--ink-1);
+}
+.hidden-head:focus-visible {
+  outline: 2px solid var(--s-cpc);
+  outline-offset: -2px;
+}
+.hidden-head[aria-expanded='true'] .chev {
+  transform: rotate(90deg);
+}
+/* Спрятанный товар с включённым биддером продолжает тратить деньги —
+   говорим об этом не раскрывая раздел. */
+.hidden-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.hidden-warn::before {
+  content: '· ';
+  color: var(--ink-3);
+}
+
 .num {
   text-align: right;
   font-size: 14px;

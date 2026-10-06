@@ -5,6 +5,7 @@ import Segmented from "../../components/Segmented";
 import "../../styles/products.css";
 import KpiBand from "./KpiBand";
 import ProductRow from "./ProductRow";
+import { splitByVisibility } from "./visibility";
 import type { Campaign, CampaignsResponse, Overview, Product, ProductsResponse } from "./types";
 
 type Period = "7" | "14" | "30";
@@ -34,6 +35,7 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback((onCancelled: () => boolean) => {
     setState({ kind: "loading" });
@@ -115,6 +117,25 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
     }
   }
 
+  // Скрытие — только вид: биддер к нему не прикасается, поэтому идёт
+  // отдельным PUT и ничего не знает про campaign_ids. Оптимистично, как и
+  // тоггл: строка обязана уехать в другой список сразу, а не после ответа.
+  async function handleHide(product: Product, next: boolean): Promise<string | null> {
+    const setHidden = (hidden: boolean) =>
+      setState((s) => (s.kind !== "ready" ? s : {
+        ...s,
+        products: s.products.map((p) => (p.sku === product.sku ? { ...p, hidden } : p)),
+      }));
+    setHidden(next);
+    try {
+      await apiSend("PUT", `/api/products/${product.sku}/visibility`, { hidden: next });
+      return null;
+    } catch (err) {
+      setHidden(!next);
+      return err instanceof ApiError ? err.errors.join(", ") : "Не удалось сохранить";
+    }
+  }
+
   // «Обновить сейчас» — POST /api/refresh идёт в кабинет Kaspi и Shop API
   // синхронно, поэтому по успеху перезапрашиваем обзор и список заново, а
   // не патчим их локально — сервер знает, что реально изменилось.
@@ -131,12 +152,22 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
     }
   }
 
-  const enabledCount = products.filter((p) => p.enabled).length;
+  // Счётчики — по ВИДИМЫМ товарам (см. visibility.ts). Не campaigns.length:
+  // тот список зависит от доступности кабинета Kaspi (budgets_available), а
+  // не от того, что реально показано в списке ниже.
+  const { visible, hidden, enabledVisible, enabledHidden, campaignCount } =
+    splitByVisibility(products);
   const hasMultiCampaignProduct = products.some((p) => p.campaign_ids.length > 1);
-  // Не campaigns.length: тот список зависит от доступности кабинета Kaspi
-  // (budgets_available), а не от того, что реально показано в списке ниже.
-  // Считаем от фактической принадлежности товаров, иначе число M соврёт.
-  const campaignCount = new Set(products.flatMap((p) => p.campaign_ids)).size;
+
+  const row = (p: Product) => (
+    <ProductRow
+      key={p.sku}
+      product={p}
+      campaignLabel={campaignLabel(p)}
+      onToggle={(next) => handleToggle(p, next)}
+      onHide={(next) => handleHide(p, next)}
+    />
+  );
 
   return (
     <div>
@@ -181,7 +212,7 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
         <div className="pagehead">
           <h1>Товары</h1>
           <p className="sub">
-            {products.length} товаров в {campaignCount} кампаниях · за последние <b>{overview.days} дней</b>
+            {visible.length} товаров в {campaignCount} кампаниях · за последние <b>{overview.days} дней</b>
             {dryRun && <> · ставки в кабинет не уходят — включён тестовый режим</>}
           </p>
         </div>
@@ -196,7 +227,7 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
 
         <div className="sec-head">
           <h2>Все товары</h2>
-          <span className="count">биддер ведёт {enabledCount} из {products.length}</span>
+          <span className="count">биддер ведёт {enabledVisible} из {visible.length}</span>
           <button type="button" className="linkish" onClick={onOpenSettings}>Настройки биддера</button>
         </div>
 
@@ -212,18 +243,33 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
               <span>Бот</span>
             </div>
           )}
-          {products.length === 0 ? (
+          {products.length === 0 && (
             <p className="empty-list">Нет товаров с рекламой за выбранный период.</p>
-          ) : (
-            products.map((p) => (
-              <ProductRow
-                key={p.sku}
-                product={p}
-                campaignLabel={campaignLabel(p)}
-                onToggle={(next) => handleToggle(p, next)}
-              />
-            ))
           )}
+          {products.length > 0 && visible.length === 0 && (
+            <p className="empty-list">Все товары скрыты — раскройте раздел ниже, чтобы вернуть.</p>
+          )}
+          {visible.map(row)}
+
+          {/* Скрытое не удалено и не забыто: раздел всегда на виду внизу
+             списка, и вернуть товар можно оттуда же, где его спрятали.
+             Внутри — те же строки: раскрытие, графики и тоггл биддера у
+             скрытого товара работают как у любого другого. */}
+          {hidden.length > 0 && (
+            <button
+              type="button"
+              className="hidden-head"
+              aria-expanded={showHidden}
+              onClick={() => setShowHidden((v) => !v)}
+            >
+              <span className="chev" aria-hidden="true">▶</span>
+              Скрытые · {hidden.length}
+              {enabledHidden > 0 && (
+                <span className="hidden-warn">биддер ведёт {enabledHidden}</span>
+              )}
+            </button>
+          )}
+          {showHidden && hidden.map(row)}
         </div>
 
         <p className="footnote">

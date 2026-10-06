@@ -17,17 +17,21 @@ type Props = {
    *  Возвращает текст ошибки (из ApiError.errors) при неудаче, иначе null —
    *  строка сама откатывать состояние не должна, это тоже забота экрана. */
   onToggle: (next: boolean) => Promise<string | null>;
+  /** Спрятать строку из списка или вернуть обратно. По той же причине, что и
+   *  onToggle, живёт на экране: скрытие переносит строку в другой список. */
+  onHide: (next: boolean) => Promise<string | null>;
 };
 
 /** Строка списка товаров (.row, docs/design/autopilot-mockup.html): название
  *  и код, спарклайн ставки, ставка, TACoS тегом, CTR, ROAS, тоггл.
  *
- *  Клик по строке раскрывает панель — в этой задаче заглушка, наполняется
- *  в задаче 3. Тоггл гасит всплытие клика: иначе переключение биддера
- *  попутно раскрывало бы/закрывало строку. */
-export default function ProductRow({ product, campaignLabel, onToggle }: Props) {
+ *  Клик по строке раскрывает панель. Тоггл и кнопка скрытия гасят всплытие
+ *  клика: иначе переключение биддера или уборка строки попутно
+ *  раскрывали бы/закрывали её. */
+export default function ProductRow({ product, campaignLabel, onToggle, onHide }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hiding, setHiding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const toggleExpanded = () => setExpanded((v) => !v);
@@ -47,10 +51,20 @@ export default function ProductRow({ product, campaignLabel, onToggle }: Props) 
     setBusy(false);
   }
 
+  async function handleHide() {
+    setError(null);
+    setHiding(true);
+    const message = await onHide(!product.hidden);
+    if (message) setError(message);
+    setHiding(false);
+  }
+
+  const title = product.name ?? "Без названия";
+
   return (
     <>
       <div
-        className="row"
+        className={product.hidden ? "row row-muted" : "row"}
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
@@ -60,9 +74,23 @@ export default function ProductRow({ product, campaignLabel, onToggle }: Props) 
         <span className="pname">
           <span className="chev" aria-hidden="true">▶</span>
           <span className="pname-txt">
-            <strong>{product.name ?? "Без названия"}</strong>
+            <strong>{title}</strong>
             <span>{product.merchant_sku} · {campaignLabel}</span>
           </span>
+          {/* Кнопка внутри ячейки названия, а не отдельной колонкой: сетка
+             .row из семи колонок общая с шапкой .cols, и восьмая сдвинула бы
+             все числа относительно их заголовков. */}
+          <button
+            type="button"
+            className="row-hide"
+            disabled={hiding}
+            title={product.hidden ? "Вернуть в список" : "Скрыть из списка"}
+            aria-label={product.hidden ? `Вернуть «${title}» в список` : `Скрыть «${title}» из списка`}
+            onClick={(e) => { e.stopPropagation(); handleHide(); }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {product.hidden ? "вернуть" : "✕"}
+          </button>
         </span>
         <span className="hide-sm">
           <Sparkline values={product.bid_spark} />
@@ -82,8 +110,8 @@ export default function ProductRow({ product, campaignLabel, onToggle }: Props) 
             disabled={busy || product.campaign_ids.length === 0}
             label={
               product.enabled
-                ? `Биддер ведёт «${product.name ?? product.sku}»`
-                : `Биддер выключен для «${product.name ?? product.sku}»`
+                ? `Биддер ведёт «${title}»`
+                : `Биддер выключен для «${title}»`
             }
           />
         </span>

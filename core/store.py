@@ -108,6 +108,18 @@ class Store:
             -- ставка восстанавливается из этой записи и запись стирается.
             -- Рантайм-состояние (не пользовательская настройка) — держим отдельно
             -- от product_control, чтобы не мешать с расписанием.
+            -- Товары, спрятанные владельцем из списка панели. Чистая
+            -- видимость: биддер эту таблицу не читает и ставками скрытого
+            -- товара управляет ровно как раньше. Ключ — sku (не пара с
+            -- кампанией): строка в списке одна на товар, и «спрятан в одной
+            -- кампании, видно в другой» не имело бы смысла. Отдельно от
+            -- product_control, чтобы скрытие не могло задеть расписание.
+            CREATE TABLE IF NOT EXISTS product_hidden (
+                sku  TEXT PRIMARY KEY,
+                user TEXT,
+                ts   INTEGER
+            );
+
             CREATE TABLE IF NOT EXISTS bid_parking (
                 campaign_id TEXT,
                 sku         TEXT,
@@ -549,6 +561,26 @@ class Store:
                  ProductControl(bool(r["enabled"]), r["window_start"],
                                 r["window_end"], r["days_mask"]))
                 for r in rows]
+
+    # ---- видимость товара в панели (личная полка, не настройка биддера) -----
+
+    def hidden_skus(self) -> set[str]:
+        """Товары, спрятанные из списка панели. Пустое множество — всё видно."""
+        rows = self._conn.execute("SELECT sku FROM product_hidden").fetchall()
+        return {r["sku"] for r in rows}
+
+    def set_sku_hidden(self, sku: str, hidden: bool, user: str, ts: int) -> None:
+        """Спрятать товар или вернуть его в список. Снятие с не спрятанного —
+        не ошибка, а no-op: панель шлёт желаемое состояние, а не дельту."""
+        if hidden:
+            self._conn.execute(
+                "INSERT INTO product_hidden (sku, user, ts) VALUES (?,?,?) "
+                "ON CONFLICT(sku) DO UPDATE SET user=excluded.user, ts=excluded.ts",
+                (sku, user, ts),
+            )
+        else:
+            self._conn.execute("DELETE FROM product_hidden WHERE sku=?", (sku,))
+        self._conn.commit()
 
     # ---- парковка ставки (ночной сброс → утреннее восстановление) -----------
 

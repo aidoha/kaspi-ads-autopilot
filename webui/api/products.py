@@ -1,14 +1,15 @@
 """products.py — список товаров и карточка одного товара."""
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from core.config_resolver import OVERRIDABLE_FIELDS, resolve_config
 from core.rules import load_rules_config
-from webui.api.deps import ApiContext, open_store, require_user
+from webui.api.deps import ApiContext, open_store, read_json, require_user
 
 ALMATY = ZoneInfo("Asia/Almaty")
 
@@ -82,6 +83,7 @@ def build_router(ctx: ApiContext) -> APIRouter:
             names = store.get_sku_name_map()
             controls = {(cid, sku): ctl
                         for cid, sku, ctl in store.all_product_controls()}
+            hidden = store.hidden_skus()
             all_campaign_ids = ({cid for cid, _ in controls} |
                                 _all_campaign_ids(store))
             # Сшиваем sku → все кампании, где он встречен (нужно ДО фильтра
@@ -148,8 +150,37 @@ def build_router(ctx: ApiContext) -> APIRouter:
                     "enabled": enabled,
                     "status": status,
                     "bid_spark": spark,
+                    # Скрытые остаются в ответе: раздел «Скрытые» в панели
+                    # показывает те же метрики и тоггл, значит фильтровать их
+                    # здесь — значит отнять у него данные. Разносит на два
+                    # списка фронт.
+                    "hidden": sku in hidden,
                 })
         return {"products": out}
+
+    @router.put("/products/{sku}/visibility")
+    async def put_visibility(sku: str, request: Request,
+                             user: str = Depends(require_user)):
+        """Спрятать товар из списка панели или вернуть его обратно.
+
+        Живёт здесь, а не в settings.py рядом с put_control: видимость — не
+        настройка биддера, а личная полка владельца, и чтение этого же флага
+        (в /products выше) должно быть на глазах у записи.
+
+        Путь без campaign_id намеренно: строка списка одна на товар. Коллизии
+        с GET /products/{campaign_id}/{sku} нет — тот только GET.
+        """
+        body = await read_json(request)
+        got = body.get("hidden")
+        # Строго bool: "false" и 0 в JSON-теле прочитались бы как «спрятать»
+        # ровно наоборот тому, что имел в виду отправитель.
+        if not isinstance(got, bool):
+            raise HTTPException(
+                status_code=400,
+                detail={"errors": ["Поле hidden должно быть true или false"]})
+        with open_store(ctx) as store:
+            store.set_sku_hidden(sku, got, user=user, ts=int(time.time()))
+        return {"ok": True}
 
     @router.get("/products/{campaign_id}/{sku}")
     def product_detail(campaign_id: str, sku: str,

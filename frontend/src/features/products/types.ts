@@ -48,6 +48,9 @@ export type Product = {
   enabled: boolean;
   status: string;
   bid_spark: number[];
+  /** Убран ли товар с глаз владельца. Чисто вид: биддер этот флаг не читает,
+   *  скрытый товар он ведёт ровно как раньше. */
+  hidden: boolean;
 };
 
 export type ProductsResponse = {
