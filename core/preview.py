@@ -54,8 +54,12 @@ def preview_decision(store, rules_path: str, campaign_id: str, sku: str,
     g = load_rules_config(rules_path)
     camp_ov = store.get_overrides("campaign", campaign_id)
     controls = store.list_product_control(campaign_id)
+    # Дни вне наличия за окно TACoS — ровно как в worker.run_tick, иначе
+    # превью пообещало бы срез там, где боевой тик держит ставку.
+    oos_days = store.oos_days_by_sku([sku], g.tacos_window_days, now=now,
+                                     campaign_id=campaign_id)
     reconciled = reconcile([_product_from_snapshot(snap)],
-                           store.get_revenue_cache())
+                           store.get_revenue_cache(), oos_days_by_sku=oos_days)
 
     def cfg_for(s):
         return resolve_config(g, camp_ov, store.get_overrides("sku", s.sku))

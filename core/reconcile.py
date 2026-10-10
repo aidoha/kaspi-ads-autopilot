@@ -58,16 +58,25 @@ class SkuReconciled:
     # carry-through из выручки
     units: int
     orders_count: int
+    # Сколько дней окна товар был вне наличия (из истории снапшотов; заполняет
+    # worker). >0 означает «нулевая выручка объясняется не рекламой» — см.
+    # медленный контур в core/rules.py.
+    oos_days_in_window: int = 0
 
 
 def reconcile(
     products: list[CampaignProduct],
     revenue_by_sku: dict[str, SkuRevenue],
+    oos_days_by_sku: dict[str, int] | None = None,
 ) -> list[SkuReconciled]:
     """
     Идём по товарам КАМПАНИИ (это управляемая вселенная — на них можно ставить ставку),
     подтягиваем выручку по merchant_sku (0, если Shop API её не видел), считаем TACoS.
     SKU, которые есть в выручке, но не рекламируются, здесь не нужны — ставку по ним не ставим.
+
+    oos_days_by_sku (sku → сколько дней окна товар был вне наличия) приходит
+    снаружи: кабинет отдаёт только СЕГОДНЯШНЕЕ состояние товара, а историю
+    наличия знает стор по снапшотам. Без него поведение прежнее (0 дней).
     """
     out: list[SkuReconciled] = []
     for p in products:
@@ -91,5 +100,6 @@ def reconcile(
             price=p.price,
             units=rev.units if rev else 0,
             orders_count=rev.orders_count if rev else 0,
+            oos_days_in_window=int((oos_days_by_sku or {}).get(p.sku, 0)),
         ))
     return out

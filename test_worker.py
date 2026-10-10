@@ -576,6 +576,47 @@ def test_daily_metrics_survives_unavailable_campaign_list():
     print("✓ недоступный список кампаний не роняет джоб метрик")
 
 
+def test_run_tick_forgives_zero_revenue_after_out_of_stock():
+    """Боевой случай 2026-10-10 (SKU 171878025): товар неделю был OutOfStock,
+    вернулся в наличие — выручки за окно нет, расход уже пошёл. Биддер обязан
+    держать ставку, а не резать: нулевую выручку объясняет сток, не реклама."""
+    from datetime import timedelta
+    st = store_with_revenue({})            # выручки за окно нет вовсе
+    for back in range(1, 7):               # всю прошлую неделю товара не было
+        ts = int((NOW() - timedelta(days=back)).timestamp())
+        st.save_products_snapshot([cp(product_state="OutOfStock")], ts,
+                                  campaign_id="2711494")
+    fm = FakeMarketing([cp(bid=100, cost=800, clicks=100, carts=0)], dry_run=False)
+    c = ctx(fm, st, dry_run=False)
+    c.window_days = 7
+
+    d = run_tick(c, loop="slow", campaign_id="2711494")[0]
+
+    assert d.action == "hold", d.reason
+    assert "налич" in d.reason.lower(), d.reason
+    assert fm.puts == [], "ставку трогать нельзя"
+    print("✓ worker: нулевая выручка после OutOfStock → ставка не режется")
+
+
+def test_run_tick_still_cuts_zero_revenue_when_always_in_stock():
+    """Обратная сторона: товар всё окно был в наличии, тратил и не продал —
+    это настоящий сигнал «реклама не окупается», срез должен остаться."""
+    from datetime import timedelta
+    st = store_with_revenue({})
+    for back in range(1, 7):
+        ts = int((NOW() - timedelta(days=back)).timestamp())
+        st.save_products_snapshot([cp(product_state="Active")], ts,
+                                  campaign_id="2711494")
+    fm = FakeMarketing([cp(bid=100, cost=800, clicks=100, carts=0)], dry_run=False)
+    c = ctx(fm, st, dry_run=False)
+    c.window_days = 7
+
+    d = run_tick(c, loop="slow", campaign_id="2711494")[0]
+
+    assert d.action == "lower", d.reason
+    print("✓ worker: товар всё окно в наличии и не продаёт → срез как прежде")
+
+
 if __name__ == "__main__":
     test_dry_run_logs_but_no_put()
     test_live_run_sends_put_with_new_bid()
@@ -596,6 +637,8 @@ if __name__ == "__main__":
     test_run_tick_parks_bid_when_leaving_window()
     test_run_tick_restores_parked_bid_in_morning()
     test_run_tick_fast_paces_by_time_of_day()
+    test_run_tick_forgives_zero_revenue_after_out_of_stock()
+    test_run_tick_still_cuts_zero_revenue_when_always_in_stock()
     test_load_cfg_safe_hot_reload_and_fallback()
     test_slow_schedule_fires_every_30_min_in_active_window()
     test_daily_metrics_asks_marketing_per_day_and_writes_rows()

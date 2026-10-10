@@ -182,6 +182,24 @@ def test_tacos_window_days_roundtrip():
     print("✓ settings: tacos_window_days переживает save→load и читается воркером")
 
 
+def test_min_clicks_for_no_revenue_cut_roundtrip_and_validation():
+    """Новый порог живёт в общей форме настроек: сохраняется в rules.yaml,
+    читается воркерским загрузчиком и валидируется как целые неотрицательные
+    клики (иначе из админки можно было бы выключить защиту опечаткой)."""
+    assert "min_clicks_for_no_revenue_cut" in SETTINGS_FIELDS
+    base = {f: getattr(RulesConfig(), f) for f in SETTINGS_FIELDS}
+    assert any("min_clicks_for_no_revenue_cut" in e
+               for e in validate_settings(dict(base, min_clicks_for_no_revenue_cut=-1)))
+
+    p = _tmp_yaml()
+    data = load_settings(p)
+    data["min_clicks_for_no_revenue_cut"] = 35
+    save_settings(p, data)
+    assert load_settings(p)["min_clicks_for_no_revenue_cut"] == 35
+    assert load_rules_config(p).min_clicks_for_no_revenue_cut == 35
+    print("✓ settings_io: порог кликов для «нет выручки» сохраняется и читается")
+
+
 if __name__ == "__main__":
     test_validate_catches_bad_values()
     test_save_load_roundtrip_and_loadable_by_worker()
@@ -195,5 +213,6 @@ if __name__ == "__main__":
     test_tacos_window_days_default_valid()
     test_tacos_window_days_rejects_bad()
     test_tacos_window_days_roundtrip()
+    test_min_clicks_for_no_revenue_cut_roundtrip_and_validation()
     print("-" * 60)
     print("✓ Все проверки settings_io прошли")

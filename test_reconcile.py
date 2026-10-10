@@ -85,11 +85,30 @@ def test_reconcile_preserves_all_products():
     print("✓ reconcile: все товары кампании попадают в результат")
 
 
+def test_reconcile_carries_out_of_stock_days():
+    """Дни вне наличия приходят снаружи (их знает стор, не кабинет) и едут
+    в SkuReconciled: медленный контур решает по ним, доверять ли нулю выручки."""
+    products = [mp(sku="a", merchant_sku="1"), mp(sku="b", merchant_sku="2")]
+    out = reconcile(products, {}, oos_days_by_sku={"a": 3})
+    by_sku = {r.sku: r for r in out}
+    assert by_sku["a"].oos_days_in_window == 3
+    assert by_sku["b"].oos_days_in_window == 0, "товар без истории OOS — ноль"
+    print("✓ reconcile: дни вне наличия доезжают до правил")
+
+
+def test_reconcile_without_oos_argument_defaults_to_zero():
+    out = reconcile([mp(sku="a", merchant_sku="1")], {})
+    assert out[0].oos_days_in_window == 0
+    print("✓ reconcile: без истории наличия поведение прежнее")
+
+
 if __name__ == "__main__":
     test_compute_tacos()
     test_reconcile_normal_join()
     test_reconcile_cost_but_no_revenue()
     test_reconcile_zero_cost_has_revenue()
     test_reconcile_preserves_all_products()
+    test_reconcile_carries_out_of_stock_days()
+    test_reconcile_without_oos_argument_defaults_to_zero()
     print("-" * 60)
     print("✓ Все проверки reconcile прошли")

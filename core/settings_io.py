@@ -11,7 +11,8 @@ from core.rules import RulesConfig, load_rules_config
 SETTINGS_FIELDS = [
     "target_tacos_low", "target_tacos_high", "tacos_window_days",
     "daily_sku_cost_limit", "sku_budget_fraction",
-    "min_clicks_for_no_cart_cut", "cpc_spike_pct",
+    "min_clicks_for_no_cart_cut", "min_clicks_for_no_revenue_cut",
+    "cpc_spike_pct",
     "max_bid_step", "max_changes_per_day",
     "bid_ceiling", "min_bid", "min_score_for_raise",
     "bid_step_pct", "cpc_headroom", "pace_tolerance",
@@ -43,6 +44,7 @@ def validate_settings(data: dict) -> list[str]:
     frac = num("sku_budget_fraction"); cap = num("daily_sku_cost_limit")
     changes = num("max_changes_per_day"); spike = num("cpc_spike_pct")
     clicks = num("min_clicks_for_no_cart_cut"); score = num("min_score_for_raise")
+    rev_clicks = num("min_clicks_for_no_revenue_cut")
     step_pct = num("bid_step_pct"); headroom = num("cpc_headroom"); pace = num("pace_tolerance")
     if min_bid is not None and min_bid < 1:
         errs.append("min_bid: минимум 1")
@@ -62,6 +64,8 @@ def validate_settings(data: dict) -> list[str]:
         errs.append("cpc_spike_pct: не отрицательный")
     if clicks is not None and clicks < 0:
         errs.append("min_clicks_for_no_cart_cut: не отрицательный")
+    if rev_clicks is not None and rev_clicks < 0:
+        errs.append("min_clicks_for_no_revenue_cut: не отрицательный")
     if score is not None and score < 0:
         errs.append("min_score_for_raise: не отрицательный")
     if step_pct is not None and not (0 <= step_pct < 1):
@@ -103,6 +107,7 @@ def save_settings(path: str, data: dict) -> None:
         "daily_sku_cost_limit": float(data["daily_sku_cost_limit"]),
         "sku_budget_fraction": float(data["sku_budget_fraction"]),
         "min_clicks_for_no_cart_cut": int(float(data["min_clicks_for_no_cart_cut"])),
+        "min_clicks_for_no_revenue_cut": int(float(data["min_clicks_for_no_revenue_cut"])),
         "cpc_spike_pct": float(data["cpc_spike_pct"]),
         "max_bid_step": float(data["max_bid_step"]),
         "max_changes_per_day": int(float(data["max_changes_per_day"])),

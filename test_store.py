@@ -670,6 +670,73 @@ def test_hiding_sku_does_not_touch_product_control():
     print("✓ скрытие товара не трогает product_control")
 
 
+def test_oos_days_counts_calendar_days_in_window():
+    """Дни вне наличия — КАЛЕНДАРНЫЕ сутки Алматы, в которые товар хоть раз
+    был не Active. Кабинет отдаёт только текущее состояние, историю наличия
+    знает только этот стор — на ней медленный контур решает, верить ли нулю
+    выручки (см. core/rules._eval_slow_one)."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    almaty = ZoneInfo("Asia/Almaty")
+    now = datetime(2026, 10, 10, 18, 0, tzinfo=almaty)
+    s = new_store()
+    for back, state in ((0, "Active"), (1, "OutOfStock"), (2, "OutOfStock"),
+                        (3, "OutOfStock"), (4, "Active")):
+        ts = int((now - timedelta(days=back)).timestamp())
+        s.save_products_snapshot([cp(sku="A", product_state=state)], ts, campaign_id="c1")
+
+    assert s.oos_days_by_sku(["A"], window_days=7, now=now) == {"A": 3}
+    print("✓ store: считаем календарные дни вне наличия за окно")
+
+
+def test_oos_days_ignores_days_outside_window():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    almaty = ZoneInfo("Asia/Almaty")
+    now = datetime(2026, 10, 10, 18, 0, tzinfo=almaty)
+    s = new_store()
+    for back in (1, 30):
+        ts = int((now - timedelta(days=back)).timestamp())
+        s.save_products_snapshot([cp(sku="A", product_state="OutOfStock")], ts,
+                                 campaign_id="c1")
+
+    assert s.oos_days_by_sku(["A"], window_days=7, now=now) == {"A": 1}, \
+        "месячной давности OutOfStock в семидневное окно не входит"
+    print("✓ store: дни вне наличия за пределами окна не считаются")
+
+
+def test_oos_days_window_is_calendar_like_tacos_window():
+    """Окно — те же КАЛЕНДАРНЫЕ сутки, что worker._almaty_dates берёт для
+    расхода и выручки (window_days суток, считая сегодня), а не скользящие
+    N×24ч. Иначе прощённые дни и дни окупаемости — это разные множества."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    almaty = ZoneInfo("Asia/Almaty")
+    now = datetime(2026, 10, 10, 18, 0, tzinfo=almaty)
+    s = new_store()
+    # Позавчера поздно вечером: в скользящие 48ч от 18:00 попадает, в
+    # календарное окно «9 и 10 октября» — нет.
+    s.save_products_snapshot(
+        [cp(sku="A", product_state="OutOfStock")],
+        int(datetime(2026, 10, 8, 23, 0, tzinfo=almaty).timestamp()), campaign_id="c1")
+
+    assert s.oos_days_by_sku(["A"], window_days=2, now=now) == {}
+    print("✓ store: окно дней вне наличия календарное, как у TACoS")
+
+
+def test_oos_days_empty_for_always_active_sku():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now = datetime(2026, 10, 10, 18, 0, tzinfo=ZoneInfo("Asia/Almaty"))
+    s = new_store()
+    s.save_products_snapshot([cp(sku="A", product_state="Active")],
+                             int(now.timestamp()), campaign_id="c1")
+
+    assert s.oos_days_by_sku(["A", "B"], window_days=7, now=now) == {}, \
+        "товар без дней вне наличия (и товар без снапшотов) в ответе не нужен"
+    print("✓ store: товар всё окно в наличии → пустой ответ")
+
+
 if __name__ == "__main__":
     test_revenue_cache_roundtrip()
     test_prev_avg_cpc_from_last_snapshot()
@@ -704,5 +771,9 @@ if __name__ == "__main__":
     test_count_ai_calls_counts_forced_recomputes()
     test_hidden_skus_roundtrip_and_unhide()
     test_hiding_sku_does_not_touch_product_control()
+    test_oos_days_counts_calendar_days_in_window()
+    test_oos_days_ignores_days_outside_window()
+    test_oos_days_empty_for_always_active_sku()
+    test_oos_days_window_is_calendar_like_tacos_window()
     print("-" * 60)
     print("✓ Все проверки store прошли")

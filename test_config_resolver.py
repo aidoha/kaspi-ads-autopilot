@@ -1,4 +1,7 @@
 """test_config_resolver.py — сборка эффективного конфига (наследование)."""
+import os
+import re
+
 from core.rules import RulesConfig
 from core.config_resolver import resolve_config, OVERRIDABLE_FIELDS
 
@@ -43,7 +46,7 @@ def test_global_only_fields_ignored():
 def test_overridable_fields_list():
     assert "dry_run" not in OVERRIDABLE_FIELDS
     assert "campaign_ids" not in OVERRIDABLE_FIELDS
-    assert "bid_ceiling" in OVERRIDABLE_FIELDS and len(OVERRIDABLE_FIELDS) == 14
+    assert "bid_ceiling" in OVERRIDABLE_FIELDS and len(OVERRIDABLE_FIELDS) == 15
     print("✓ resolver: список переопределяемых полей корректен")
 
 
@@ -58,6 +61,35 @@ def test_new_fields_overridable_per_sku():
     print("✓ resolver: bid_step_pct/cpc_headroom/pace_tolerance переопределяются по SKU")
 
 
+def test_min_clicks_for_no_revenue_cut_overridable_per_sku():
+    """Порог «сколько кликов нужно, чтобы поверить в ноль выручки» — такой же
+    тюнинг, как min_clicks_for_no_cart_cut: редактируется по кампании и SKU
+    и приводится к int (кликов не бывает дробных)."""
+    g = RulesConfig()
+    r = resolve_config(g, {}, {"min_clicks_for_no_revenue_cut": "35"})
+    assert r.min_clicks_for_no_revenue_cut == 35
+    assert isinstance(r.min_clicks_for_no_revenue_cut, int)
+    print("✓ resolver: порог кликов для «нет выручки» переопределяется по SKU")
+
+
+def test_frontend_field_list_matches_backend():
+    """Список переопределяемых полей продублирован в React-панели
+    (frontend/src/features/products/fieldMeta.ts) — у фронта нет доступа к
+    питонячьему списку. Расхождение молчаливое: новый порог просто не
+    появится в форме, а лишний отрендерится без подписи. Сторожим равенство
+    (порядок включительно) и наличие подписи у каждого поля."""
+    path = os.path.join(os.path.dirname(__file__), "frontend", "src",
+                        "features", "products", "fieldMeta.ts")
+    src = open(path).read()
+    listed = re.search(r"OVERRIDABLE_FIELDS = \[(.*?)\]", src, re.S).group(1)
+    assert re.findall(r'"([a-z_]+)"', listed) == OVERRIDABLE_FIELDS
+
+    meta = re.search(r"FIELD_META: Record<FieldName, .*?> = \{(.*)\};", src, re.S).group(1)
+    documented = re.findall(r"^  ([a-z_]+): \{", meta, re.M)
+    assert documented == OVERRIDABLE_FIELDS, "у каждого поля своя подпись в форме"
+    print("✓ resolver: список полей в React-панели совпадает с бэкендом")
+
+
 if __name__ == "__main__":
     test_no_overrides_equals_global()
     test_campaign_overrides_global()
@@ -66,5 +98,7 @@ if __name__ == "__main__":
     test_global_only_fields_ignored()
     test_overridable_fields_list()
     test_new_fields_overridable_per_sku()
+    test_min_clicks_for_no_revenue_cut_overridable_per_sku()
+    test_frontend_field_list_matches_backend()
     print("-" * 60)
     print("✓ Все проверки config_resolver прошли")

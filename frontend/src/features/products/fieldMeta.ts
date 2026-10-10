@@ -1,4 +1,4 @@
-// fieldMeta.ts — подписи и пояснения к 14 переопределяемым полям настроек.
+// fieldMeta.ts — подписи и пояснения к 15 переопределяемым полям настроек.
 //
 // Тексты перенесены ДОСЛОВНО из webui/templates/sku_settings.html
 // (словарь field_meta) — они уже написаны по-русски и выверены человеком,
@@ -11,7 +11,8 @@
 export const OVERRIDABLE_FIELDS = [
   "target_tacos_low", "target_tacos_high",
   "daily_sku_cost_limit", "sku_budget_fraction",
-  "min_clicks_for_no_cart_cut", "cpc_spike_pct",
+  "min_clicks_for_no_cart_cut", "min_clicks_for_no_revenue_cut",
+  "cpc_spike_pct",
   "max_bid_step", "max_changes_per_day",
   "bid_ceiling", "min_bid", "min_score_for_raise",
   "bid_step_pct", "cpc_headroom", "pace_tolerance",
@@ -39,6 +40,10 @@ export const FIELD_META: Record<FieldName, { label: string; hint: string }> = {
   min_clicks_for_no_cart_cut: {
     label: "Мин. кликов для отсечки без корзин",
     hint: "Если по товару набралось столько кликов, а добавлений в корзину нет — сработает защитное снижение ставки (быстрый контур).",
+  },
+  min_clicks_for_no_revenue_cut: {
+    label: "Мин. кликов для отсечки без выручки",
+    hint: "Сколько кликов должно набраться за окно TACoS, прежде чем движок поверит нулевой выручке и снизит ставку. Дни, когда товара не было в наличии, он прощает отдельно — сток не вина рекламы.",
   },
   cpc_spike_pct: {
     label: "Порог скачка CPC",

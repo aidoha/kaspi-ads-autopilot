@@ -164,7 +164,11 @@ def run_tick(ctx: WorkerContext, loop: str, campaign_id: str,
         ctx.store.put_product_names(mk_names, ts)
 
     revenue = ctx.store.get_revenue_cache()
-    reconciled = reconcile(products, revenue)
+    # Дни вне наличия за то же окно: пустая выручка у товара, которого не было
+    # на складе, — не приговор рекламе (см. core/rules._eval_slow_one).
+    oos_days = ctx.store.oos_days_by_sku(
+        [p.sku for p in products], ctx.window_days, now=now, campaign_id=campaign_id)
+    reconciled = reconcile(products, revenue, oos_days_by_sku=oos_days)
 
     for r in reconciled:
         ctx.store.record_tacos(day, r.merchant_sku, r.tacos, r.cost, r.revenue)

@@ -29,6 +29,7 @@ class RulesConfig:
     daily_sku_cost_limit: float = 3000
     sku_budget_fraction: float = 0.5   # доля дневного бюджета кампании на один SKU
     min_clicks_for_no_cart_cut: int = 40
+    min_clicks_for_no_revenue_cut: int = 20   # порог кликов за окно для среза «нет выручки»
     cpc_spike_pct: float = 0.5
     max_bid_step: float = 15          # кэп одного шага, ₸ (было 2)
     bid_step_pct: float = 0.20        # доля шага от ставки; 0 = фикс-шаг max_bid_step
@@ -192,6 +193,24 @@ def _eval_slow_one(s, cfg: RulesConfig, st: DailyState) -> Decision:
 
     # Расход без выручки за окно = худшая окупаемость → снижаем.
     if s.tacos is None:
+        # ...но только если расход вообще был. Нулевой расход = товар не
+        # показывался (нет стока, нет показов): окупаемость по нему не судят.
+        if s.cost <= 0:
+            return _hold(s, "slow", "за окно нет ни расхода, ни выручки — снижать не за что")
+        # ...и только если нулевую выручку объясняет реклама, а не пустой склад.
+        # Товар, которого часть окна не было в наличии, продавать физически не
+        # мог: срезать ему ставку сразу после возврата — это наказание за сток.
+        # Самозалечивается: окно без дней OutOfStock снова включает правило.
+        if s.oos_days_in_window > 0:
+            return _hold(s, "slow",
+                         f"выручки за окно нет, но товар был вне наличия "
+                         f"{s.oos_days_in_window} дн. из окна — не снижаем")
+        # Порог значимости: по паре кликов об окупаемости не судят (та же
+        # логика, что min_clicks_for_no_cart_cut в быстром контуре).
+        if s.clicks < cfg.min_clicks_for_no_revenue_cut:
+            return _hold(s, "slow",
+                         f"выручки за окно нет, но кликов мало ({s.clicks} < "
+                         f"{cfg.min_clicks_for_no_revenue_cut}) — не снижаем")
         return _stepped(s, "lower", "slow",
                         "за окно расход есть, реальной выручки нет → снижаем", cfg)
 

@@ -203,6 +203,55 @@ def test_slow_cost_no_revenue_lowers():
     print("✓ slow: расход без выручки за окно → снижаем")
 
 
+def test_slow_no_revenue_and_no_cost_holds():
+    # Товар не показывался: за окно ни расхода, ни выручки. Снижать не за что —
+    # причина «расход есть, выручки нет» тут была бы просто неправдой.
+    d = only(evaluate_slow([sr(tacos=None, has_revenue=False, cost=0, revenue=0,
+                               clicks=0, carts=0)], CFG))
+    assert d.action == "hold"
+    assert "расход" in d.reason.lower()
+    print("✓ slow: нет ни расхода, ни выручки → держим (резать не за что)")
+
+
+def test_slow_no_revenue_cut_needs_min_clicks():
+    # Один клик за окно — не выборка. Резать ставку вдвое по нему нельзя
+    # (идиома min_clicks_for_no_cart_cut из быстрого контура, но для выручки).
+    d = only(evaluate_slow([sr(tacos=None, has_revenue=False, cost=120, revenue=0,
+                               clicks=1, carts=0)], CFG))
+    assert d.action == "hold"
+    assert "клик" in d.reason.lower()
+    print("✓ slow: мало кликов за окно → не режем по «нет выручки»")
+
+
+def test_slow_no_revenue_cut_fires_above_click_threshold():
+    # Кликов достаточно — сигнал «тратим и не продаём» настоящий, режем.
+    cfg = RulesConfig(min_clicks_for_no_revenue_cut=20)
+    d = only(evaluate_slow([sr(tacos=None, has_revenue=False, cost=800, revenue=0,
+                               clicks=20, carts=0)], cfg))
+    assert d.action == "lower"
+    print("✓ slow: кликов хватает → срез по «нет выручки» работает")
+
+
+def test_slow_no_revenue_cut_skipped_when_out_of_stock_in_window():
+    # Боевой случай 2026-10-10 (SKU 171878025): товар 3 недели был OutOfStock,
+    # вернулся в наличие — выручке в окне взяться неоткуда, а расход уже капает.
+    # Снижать по «нет выручки» нельзя: нулевая выручка объясняется не рекламой.
+    d = only(evaluate_slow([sr(tacos=None, has_revenue=False, cost=800, revenue=0,
+                               clicks=100, carts=0, oos_days_in_window=3)], CFG))
+    assert d.action == "hold"
+    assert "налич" in d.reason.lower()
+    print("✓ slow: товар был вне наличия в окне → не режем по «нет выручки»")
+
+
+def test_slow_out_of_stock_window_still_lowers_on_bad_tacos():
+    # Страховка от расползания: пустой знаменатель прощаем, но посчитанный
+    # TACoS выше коридора — это настоящие данные, его режем как обычно.
+    d = only(evaluate_slow([sr(tacos=0.40, has_revenue=True, cost=800, revenue=2000,
+                               oos_days_in_window=3)], CFG))
+    assert d.action == "lower"
+    print("✓ slow: дни вне наличия не отменяют срез по плохому TACoS")
+
+
 def test_slow_low_score_blocks_raise():
     # окупаемость зовёт поднять, но score низкий → НЕ задираем плохой товар
     d = only(evaluate_slow([sr(tacos=0.04, score=2.0)], CFG))
@@ -362,6 +411,11 @@ if __name__ == "__main__":
         test_slow_below_corridor_raises,
         test_slow_above_corridor_lowers,
         test_slow_cost_no_revenue_lowers,
+        test_slow_no_revenue_and_no_cost_holds,
+        test_slow_no_revenue_cut_needs_min_clicks,
+        test_slow_no_revenue_cut_fires_above_click_threshold,
+        test_slow_no_revenue_cut_skipped_when_out_of_stock_in_window,
+        test_slow_out_of_stock_window_still_lowers_on_bad_tacos,
         test_slow_low_score_blocks_raise,
         test_slow_ceiling_clamps_raise,
         test_slow_paused_product_holds,

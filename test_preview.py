@@ -82,10 +82,35 @@ def test_preview_does_not_touch_parking():
     print("✓ превью не трогает запаркованные ставки")
 
 
+def test_preview_forgives_zero_revenue_after_out_of_stock():
+    """Превью не должно расходиться с воркером: товар, который часть окна был
+    вне наличия, биддер по «нет выручки» не режет — так и показываем."""
+    store, rules = _env()
+    now = datetime(2026, 10, 10, 18, 0, tzinfo=ALMATY)
+
+    def snap(ts, state, cost, clicks):
+        store.save_products_snapshot([CampaignProduct(
+            sku="s1", merchant_sku="ms1", campaign_product_id=1, bid=40,
+            avg_cpc=28, score=7.0, buy_box=True, product_state=state,
+            cost=cost, cost_today=cost, gmv=0, crr=0, cr=0, ctr=0,
+            views=clicks * 20, clicks=clicks, carts=0, transactions=0,
+            price=10000)], ts=ts, campaign_id="c1")
+
+    snap(int(now.timestamp()) - 7200, "OutOfStock", 0, 0)   # утром стока не было
+    snap(int(now.timestamp()) - 60, "Active", 800, 100)     # вернулся, тратит
+
+    got = preview_decision(store, rules, "c1", "s1", now)
+
+    assert got["slow"]["action"] == "hold", got["slow"]
+    assert "налич" in got["slow"]["reason"].lower(), got["slow"]
+    print("✓ превью: дни вне наличия учитываются так же, как в воркере")
+
+
 if __name__ == "__main__":
     test_preview_returns_none_without_snapshot()
     test_preview_shows_both_loops_for_active_product()
     test_preview_reports_control_layer_when_disabled()
     test_preview_does_not_touch_parking()
+    test_preview_forgives_zero_revenue_after_out_of_stock()
     print("-" * 60)
     print("✓ Все проверки превью прошли")

@@ -375,6 +375,43 @@ class Store:
         ).fetchone()
         return row["n"]
 
+    def oos_days_by_sku(self, skus: list[str], window_days: int,
+                        now: datetime | None = None,
+                        campaign_id: str | None = None) -> dict[str, int]:
+        """sku → сколько КАЛЕНДАРНЫХ суток Алматы из окна товар был вне наличия.
+
+        Кабинет отдаёт только текущее состояние товара, поэтому историю наличия
+        приходится читать из собственных снапшотов. Вне наличия = любое
+        состояние, кроме Active (кабинет шлёт OutOfStock/Paused): продаваться
+        через рекламу товар в эти сутки не мог, и нулевая выручка за окно
+        объясняется не ставкой. Пустое состояние = «не знаем», не считаем.
+
+        В ответе только товары с ненулевым счётчиком — остальным нечего
+        прощать (вызывающий читает через .get(sku, 0))."""
+        if not skus:
+            return {}
+        now = (now or datetime.now(ALMATY)).astimezone(ALMATY)
+        # Окно — те же календарные сутки, что worker._almaty_dates отдаёт
+        # кабинету за расходом: прощаем ровно те дни, по которым считается
+        # окупаемость.
+        start_day = now.date() - timedelta(days=window_days - 1)
+        since = int(datetime(start_day.year, start_day.month, start_day.day,
+                             tzinfo=ALMATY).timestamp())
+        # Сутки режем по Алматы: сдвигаем ts на смещение зоны и группируем
+        # уже в SQL — иначе пришлось бы тащить в Python тысячи строк снапшотов.
+        offset = int(now.utcoffset().total_seconds())
+        marks = ",".join("?" * len(skus))
+        sql = (f"SELECT sku, COUNT(DISTINCT date(ts + ?, 'unixepoch')) AS n "
+               f"FROM products_snapshot "
+               f"WHERE sku IN ({marks}) AND ts >= ? "
+               f"  AND product_state != '' AND product_state != 'Active' ")
+        args: list = [offset, *skus, since]
+        if campaign_id is not None:
+            sql += "AND campaign_id=? "
+            args.append(campaign_id)
+        sql += "GROUP BY sku"
+        return {r["sku"]: r["n"] for r in self._conn.execute(sql, args).fetchall()}
+
     def build_daily_state(self, skus: list[str], day: str) -> dict[str, DailyState]:
         """Суточное состояние для движка правил: счётчик изменений + prev avgCpc."""
         return {
