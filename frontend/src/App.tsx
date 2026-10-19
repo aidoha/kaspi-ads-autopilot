@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend, ApiError } from "./api/client";
 import LoginScreen from "./features/auth/LoginScreen";
 import ProductsScreen from "./features/products/ProductsScreen";
+import ReportsScreen from "./features/reports/ReportsScreen";
 import SettingsScreen from "./features/settings/SettingsScreen";
 import { pathForScreen, screenFromPath, type Screen } from "./route";
 
@@ -116,11 +117,16 @@ export default function App() {
     );
   }
 
+  if (screen === "reports") {
+    return <ReportsScreen onBack={() => navigate("products")} onLogout={logout} />;
+  }
+
   return (
     <ProductsScreen
       onLogout={logout}
       dryRun={dryRun}
       onOpenSettings={() => navigate("settings")}
+      onOpenReports={() => navigate("reports")}
     />
   );
 }

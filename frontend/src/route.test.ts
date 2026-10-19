@@ -7,6 +7,11 @@ describe("screenFromPath", () => {
     expect(screenFromPath("/settings/")).toBe("settings");
   });
 
+  it("/reports — экран отчётов", () => {
+    expect(screenFromPath("/reports")).toBe("reports");
+    expect(screenFromPath("/reports/")).toBe("reports");
+  });
+
   it("любой другой путь — экран товаров", () => {
     expect(screenFromPath("/")).toBe("products");
     expect(screenFromPath("")).toBe("products");
@@ -18,5 +23,6 @@ describe("pathForScreen", () => {
   it("обратное отображение для history.pushState", () => {
     expect(pathForScreen("settings")).toBe("/settings");
     expect(pathForScreen("products")).toBe("/");
+    expect(pathForScreen("reports")).toBe("/reports");
   });
 });

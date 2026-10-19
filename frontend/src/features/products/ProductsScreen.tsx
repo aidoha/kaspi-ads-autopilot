@@ -24,12 +24,14 @@ type Props = {
    *  величина, что тоггл на экране настроек. null — ещё не узнали. */
   dryRun: boolean | null;
   onOpenSettings: () => void;
+  /** Экран «Деньги по товарам» — выгрузки Kaspi, которые владелец грузит руками. */
+  onOpenReports: () => void;
 };
 
 /** Главный экран: шапка с фильтрами, строка KPI, список товаров с
  *  тогглерами. Разметка и стили — из утверждённого макета
  *  docs/design/autopilot-mockup.html. */
-export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Props) {
+export default function ProductsScreen({ onLogout, dryRun, onOpenSettings, onOpenReports }: Props) {
   const [campaign, setCampaign] = useState("all");
   const [period, setPeriod] = useState<Period>("14");
   const [state, setState] = useState<LoadState>({ kind: "loading" });
@@ -204,6 +206,7 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings }: Pro
             ]}
           />
           {dryRun && <span className="pill-run">Тестовый режим</span>}
+          <button type="button" className="linkish" onClick={onOpenReports}>Деньги по товарам</button>
           <button type="button" className="linkish" onClick={onLogout}>Выйти</button>
         </div>
       </div>

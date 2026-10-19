@@ -9,13 +9,16 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // Файл уходит сырым телом, как есть: JSON.stringify превратил бы его в «{}».
+  const raw = body instanceof Blob;
   const res = await fetch(path, {
     method,
     // credentials: кука сессии — единственная авторизация. Токенов нет
     // сознательно: токен в localStorage унесла бы любая XSS.
     credentials: "include",
-    headers: body === undefined ? {} : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: body === undefined ? {}
+      : { "Content-Type": raw ? "application/octet-stream" : "application/json" },
+    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
   });
   if (!res.ok) {
     // API всегда отвечает {"errors": [...]} — одна форма на все ошибки.
@@ -30,5 +33,5 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const apiGet = <T,>(path: string) => request<T>("GET", path);
-export const apiSend = <T,>(method: "POST" | "PUT", path: string, body?: unknown) =>
+export const apiSend = <T,>(method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
   request<T>(method, path, body);

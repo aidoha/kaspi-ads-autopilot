@@ -148,6 +148,7 @@ def create_app() -> FastAPI:
     from webui.api import auth as api_auth
     from webui.api import overview as api_overview
     from webui.api import products as api_products
+    from webui.api import reports as api_reports
     from webui.api import settings as api_settings
 
     api_ctx = ApiContext(rules_path=rules_path, db_path=db_path,
@@ -156,6 +157,7 @@ def create_app() -> FastAPI:
     app.include_router(api_overview.build_router(api_ctx, _get_campaign_budgets))
     app.include_router(api_products.build_router(api_ctx))
     app.include_router(api_settings.build_router(api_ctx, _live_refresh_snapshot))
+    app.include_router(api_reports.build_router(api_ctx))
 
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse

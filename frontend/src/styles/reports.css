@@ -1,0 +1,212 @@
+/* reports.css — экран «Деньги по товарам». Опирается на products.css
+   (шапка, KPI-строка, .group/.row/.detail) и добавляет только своё:
+   колонки таблицы денег, полосу «куда уходит выручка», загрузку файлов.
+
+   Цвета статей расходов — слоты 1–5 валидированной категориальной
+   палитры (проверены validate_palette.js в обеих темах). Три слота ниже
+   3:1 к фону в светлой теме, поэтому полоса всегда идёт вместе с
+   подписанной таблицей статей под ней — цвет не единственный носитель. */
+
+:root {
+  --c-cogs: #2a78d6;
+  --c-commission: #eb6834;
+  --c-delivery: #1baf7a;
+  --c-ads: #eda100;
+  --c-bonus: #e87ba4;
+  --c-profit: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --c-cogs: #3987e5;
+    --c-commission: #d95926;
+    --c-delivery: #199e70;
+    --c-ads: #c98500;
+    --c-bonus: #d55181;
+  }
+}
+:root[data-theme="dark"] {
+  --c-cogs: #3987e5;
+  --c-commission: #d95926;
+  --c-delivery: #199e70;
+  --c-ads: #c98500;
+  --c-bonus: #d55181;
+}
+
+.neg { color: var(--crit); }
+.dim { color: var(--ink-3); }
+
+/* ---- таблица товаров ---- */
+.rcols,
+.rrow {
+  grid-template-columns: minmax(0, 1fr) 104px 64px 92px 84px 104px 64px;
+}
+.rcols { padding-top: 6px; padding-bottom: 6px; }
+.colbtn {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 3px 0;
+  cursor: pointer;
+  text-align: right;
+}
+.colbtn:first-child { text-align: left; }
+.colbtn:hover { color: var(--ink); }
+.colbtn[aria-sort] { color: var(--ink); }
+.need-cost {
+  font-size: 12px;
+  color: var(--warn);
+}
+
+.ccols,
+.ccol-row {
+  grid-template-columns: minmax(0, 1fr) 80px 70px 120px 100px;
+}
+.ccol-row { cursor: default; }
+.ccol-row:hover { background: none; }
+
+/* ---- панель товара ---- */
+.rd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 32px;
+}
+.rd-h {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rd-h:not(:first-child) { margin-top: 20px; }
+.rd-note {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 6px 0 0;
+}
+
+.stack {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  /* Подложка — неразложенная часть выручки (нет себестоимости/комиссии). */
+  background: var(--surface-3);
+}
+.seg { display: block; min-width: 2px; flex-basis: 0; }
+.seg-cogs { background: var(--c-cogs); }
+.seg-commission { background: var(--c-commission); }
+.seg-delivery { background: var(--c-delivery); }
+.seg-ads { background: var(--c-ads); }
+.seg-bonus { background: var(--c-bonus); }
+.seg-profit { background: var(--c-profit); }
+
+.ledger, .facts { margin: 0; }
+.lg-row, .fact {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+.lg-row + .lg-row, .fact + .fact { border-top: 1px solid var(--hairline); }
+.lg-row dt, .fact dt { color: var(--ink-2); display: flex; align-items: baseline; gap: 8px; }
+.lg-row dt small, .lg-row dd small { color: var(--ink-3); font-size: 12px; }
+.lg-row dd, .fact dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.lg-head dt, .lg-head dd, .lg-total dt, .lg-total dd { color: var(--ink); font-weight: 600; }
+.lg-total { border-top: 1px solid var(--hairline-2) !important; }
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+  align-self: center;
+}
+
+.cost-form { display: grid; gap: 10px; }
+.cost-form label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.cost-form input, .inline-form input {
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  color: var(--ink);
+  box-sizing: border-box;
+  width: 100%;
+}
+.cost-form .btn { justify-self: start; }
+.form-err { color: var(--crit); font-size: 13px; margin: 0; }
+
+.inline-form { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.inline-form input { width: 72px; padding: 4px 8px; }
+
+/* ---- предупреждения ---- */
+.warns {
+  margin-top: 18px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.warns p { margin: 0; }
+.warns p + p { margin-top: 6px; }
+
+/* ---- загрузка ---- */
+.drop {
+  border: 1.5px dashed var(--hairline-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 22px 18px;
+  text-align: center;
+  font-size: 14px;
+}
+.drop p { margin: 0 0 4px; }
+.drop .btn { margin-top: 10px; }
+.drop.drag { border-color: var(--s-cpc); background: var(--surface-2); }
+.up-log { list-style: none; margin: 10px 0 0; padding: 0 4px; font-size: 13px; color: var(--ink-2); }
+.up-log li + li { margin-top: 4px; }
+.up-log b { color: var(--ink); font-weight: 500; }
+.up-log li.bad, .up-log li.bad b { color: var(--crit); }
+
+.uploads { margin-top: 14px; }
+.up-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+}
+.up-row + .up-row { border-top: 1px solid var(--hairline); }
+.up-actions { display: flex; gap: 14px; }
+.linkish.danger { color: var(--crit); }
+
+.howto { margin-top: 18px; font-size: 13px; color: var(--ink-2); padding: 0 4px; }
+.howto summary { cursor: pointer; color: var(--ink); }
+.howto ol { margin: 10px 0 0; padding-left: 20px; }
+.howto li + li { margin-top: 6px; }
+
+@media (max-width: 860px) {
+  .rrow { grid-template-columns: minmax(0, 1fr) 92px 96px; }
+  .ccols { display: none; }
+  .ccol-row { grid-template-columns: minmax(0, 1fr) 90px; }
+  .ccol-row .num:nth-child(2), .ccol-row .num:nth-child(3), .ccol-row .num:nth-child(4) { display: none; }
+  .rd-grid { grid-template-columns: 1fr; gap: 22px; }
+  .sec-head { flex-wrap: wrap; }
+  .wrap { padding-left: 16px; padding-right: 16px; }
+  .topbar-inner { padding: 0 16px; gap: 10px; }
+}
