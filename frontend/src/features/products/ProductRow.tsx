@@ -95,15 +95,15 @@ export default function ProductRow({ product, campaignLabel, onToggle, onHide }:
         <span className="hide-sm">
           <Sparkline values={product.bid_spark} />
         </span>
-        <span className="num hide-sm">
+        <span className="num hide-sm cell-bid" data-label="Ставка">
           {fmtMoney(product.bid)} <span className="unit">₸</span>
         </span>
-        <span className="num">
+        <span className="num" data-label="TACoS">
           <Tag health={tacosHealth(product.tacos)}>{fmtPct(product.tacos)}</Tag>
         </span>
-        <span className="num dim hide-sm">{fmtPct(product.ctr)}</span>
-        <span className="num dim hide-sm">{fmtX(product.roas)}</span>
-        <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <span className="num dim hide-sm" data-label="CTR">{fmtPct(product.ctr)}</span>
+        <span className="num dim hide-sm cell-roas" data-label="ROAS">{fmtX(product.roas)}</span>
+        <span className="cell-switch" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <Switch
             checked={product.enabled}
             onChange={handleToggle}

@@ -1,0 +1,146 @@
+/* mobile.css — панель с телефона. Подключается последним (main.tsx после
+   App), чтобы перекрывать правила экранов, а не спорить с ними порядком.
+
+   Общая идея для узкого экрана: шапка в две строки (название + меню, под
+   ними фильтры), строки списков — карточкой: название во всю ширину, под
+   ним метрики сеткой с подписями (заголовка колонок на телефоне нет —
+   без подписи «18%» не понять, что это). */
+
+/* ---- меню шапки (десктоп: обычные ссылки в строку) ---- */
+.topmenu { position: relative; }
+.topmenu-btn { display: none; }
+.topmenu-items { display: flex; align-items: center; gap: 16px; }
+
+.topbar-filters { display: flex; align-items: center; gap: 16px; }
+
+@media (max-width: 860px) {
+  /* iOS увеличивает страницу при фокусе на поле со шрифтом мельче 16px —
+     после ввода ставки пришлось бы отщипывать масштаб обратно. */
+  input, select, textarea { font-size: 16px !important; }
+
+  .wrap { padding-left: 16px; padding-right: 16px; }
+
+  .topbar-inner {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    gap: 8px 12px;
+  }
+  .brand { white-space: nowrap; min-width: 0; }
+  .brand small { display: none; }
+  .pill-run { display: none; }   /* тот же текст есть в подзаголовке экрана */
+  .topbar-filters {
+    order: 10;
+    flex: 1 0 100%;
+    gap: 8px;
+  }
+  .topbar-filters select.plain { flex: 1; min-width: 0; padding: 6px 10px; }
+  .topbar-filters .segmented { flex: none; }
+  .topbar-filters .segmented button { padding-left: 9px; padding-right: 9px; }
+
+  .topmenu-btn {
+    display: block;
+    font: inherit;
+    font-size: 20px;
+    line-height: 1;
+    width: 40px;
+    height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .topmenu.open .topmenu-btn { background: var(--surface-3); }
+  .topmenu-items {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 40;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    min-width: 210px;
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 8px 28px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+  }
+  .topmenu.open .topmenu-items { display: flex; }
+  .topmenu-items .linkish {
+    text-align: left;
+    padding: 13px 16px;
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .topmenu-items .linkish + .linkish { border-top: 1px solid var(--hairline); }
+
+  .pagehead { padding: 22px 0 16px; }
+  h1 { font-size: 26px; }
+
+  /* ---- KPI: две колонки, последняя нечётная — во всю ширину ---- */
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi, .kpi + .kpi { padding: 14px 0; border-left: 0; }
+  .kpi:nth-child(even) { border-left: 1px solid var(--hairline); padding-left: 14px; }
+  .kpi:nth-child(odd) { padding-right: 12px; }
+  .kpi:nth-child(n + 3) { border-top: 1px solid var(--hairline); }
+  .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .kpi-val { font-size: 22px; }
+
+  .sec-head { flex-wrap: wrap; row-gap: 4px; }
+
+  /* ---- строки-карточки ---- */
+  .row [data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 1px;
+  }
+  .row .num { text-align: left; }
+  .pname-txt strong { white-space: normal; }
+
+  /* Товары: название + тоггл бота сверху, под ними ставка / TACoS / ROAS. */
+  .row:not(.rrow):not(.ccol-row) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 10px 12px;
+    padding: 12px 16px 14px;
+  }
+  .row:not(.rrow):not(.ccol-row) > .pname { grid-column: 1 / 4; grid-row: 1; }
+  .row:not(.rrow):not(.ccol-row) > .cell-switch { grid-column: 4; grid-row: 1; align-self: start; }
+  .row .hide-sm.cell-bid,
+  .row .hide-sm.cell-roas { display: block; }
+  .row .pname { align-items: flex-start; }
+
+  /* Деньги по товарам: название во всю ширину, шесть цифр сеткой 3×2. */
+  .rrow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding: 12px 16px 14px;
+  }
+  .rrow > .pname { grid-column: 1 / -1; }
+  .rcols { display: none; }
+
+  .detail { padding: 16px; }
+  /* «наследовать» и его тоггл — одной строкой под полем, а не столбиком. */
+  .field .inh { display: flex; align-items: center; gap: 10px; }
+  .field { padding: 12px 0; }
+  .up-row { padding: 11px 16px; flex-wrap: wrap; }
+  .drop { padding: 18px 14px; }
+  .inline-form { flex-wrap: wrap; }
+
+  /* Кнопки-тапы не меньше пальца. */
+  .segmented button { padding-top: 7px; padding-bottom: 7px; }
+  .btn { padding: 9px 16px; }
+}
+
+/* Сортировка на телефоне — отдельным селектом вместо скрытой шапки колонок. */
+.sort-sm { display: none; }
+@media (max-width: 860px) {
+  .sort-sm { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+}

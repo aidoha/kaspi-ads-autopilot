@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend, ApiError } from "../../api/client";
 import { fmtTs } from "../../api/format";
 import Segmented from "../../components/Segmented";
+import TopMenu from "../../components/TopMenu";
 import "../../styles/products.css";
 import KpiBand from "./KpiBand";
 import ProductRow from "./ProductRow";
@@ -184,30 +185,35 @@ export default function ProductsScreen({ onLogout, dryRun, onOpenSettings, onOpe
             </button>
             {refreshError && <small style={{ color: "var(--crit)" }}>{refreshError}</small>}
           </div>
-          <select
-            className="plain"
-            aria-label="Кампания"
-            value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
-          >
-            <option value="all">Все кампании</option>
-            {campaigns.map((c) => (
-              <option key={c.id} value={c.id}>{c.name ? `${c.name} · ${c.id}` : c.id}</option>
-            ))}
-          </select>
-          <Segmented
-            ariaLabel="Период"
-            value={period}
-            onChange={setPeriod}
-            options={[
-              { value: "7", label: "7 дней" },
-              { value: "14", label: "14 дней" },
-              { value: "30", label: "30 дней" },
-            ]}
-          />
+          <div className="topbar-filters">
+            <select
+              className="plain"
+              aria-label="Кампания"
+              value={campaign}
+              onChange={(e) => setCampaign(e.target.value)}
+            >
+              <option value="all">Все кампании</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>{c.name ? `${c.name} · ${c.id}` : c.id}</option>
+              ))}
+            </select>
+            <Segmented
+              ariaLabel="Период"
+              value={period}
+              onChange={setPeriod}
+              options={[
+                { value: "7", label: "7 дней" },
+                { value: "14", label: "14 дней" },
+                { value: "30", label: "30 дней" },
+              ]}
+            />
+          </div>
           {dryRun && <span className="pill-run">Тестовый режим</span>}
-          <button type="button" className="linkish" onClick={onOpenReports}>Деньги по товарам</button>
-          <button type="button" className="linkish" onClick={onLogout}>Выйти</button>
+          <TopMenu items={[
+            { label: "Деньги по товарам", onClick: onOpenReports },
+            { label: "Настройки биддера", onClick: onOpenSettings },
+            { label: "Выйти", onClick: onLogout },
+          ]} />
         </div>
       </div>
 

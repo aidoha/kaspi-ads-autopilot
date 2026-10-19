@@ -201,12 +201,8 @@
 .howto li + li { margin-top: 6px; }
 
 @media (max-width: 860px) {
-  .rrow { grid-template-columns: minmax(0, 1fr) 92px 96px; }
   .ccols { display: none; }
   .ccol-row { grid-template-columns: minmax(0, 1fr) 90px; }
   .ccol-row .num:nth-child(2), .ccol-row .num:nth-child(3), .ccol-row .num:nth-child(4) { display: none; }
   .rd-grid { grid-template-columns: 1fr; gap: 22px; }
-  .sec-head { flex-wrap: wrap; }
-  .wrap { padding-left: 16px; padding-right: 16px; }
-  .topbar-inner { padding: 0 16px; gap: 10px; }
 }

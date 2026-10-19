@@ -13,10 +13,6 @@ type Props = {
 
 const n = (v: number) => Math.round(v).toLocaleString("ru-RU").replace(/\s/g, " ");
 
-function Money({ v, dim }: { v: number | null; dim?: boolean }) {
-  return <span className={dim ? "num dim" : "num"}>{fmtMoney(v)}</span>;
-}
-
 /** Строка товара в отчёте + раскрывающаяся панель: куда уходит выручка,
  *  воронка рекламы, заказы и поля себестоимости/комиссии. */
 export default function ReportRow({ product: p, onSaved }: Props) {
@@ -45,18 +41,18 @@ export default function ReportRow({ product: p, onSaved }: Props) {
             <span>{sub}</span>
           </span>
         </span>
-        <Money v={p.revenue} />
-        <span className="num hide-sm">{p.orders}</span>
-        <span className="num hide-sm">
+        <span className="num" data-label="Выручка">{fmtMoney(p.revenue)}</span>
+        <span className="num" data-label="Заказы">{p.orders}</span>
+        <span className="num" data-label="Реклама">
           {p.has_ads ? fmtMoney(p.ad_cost) : <span className="dim">—</span>}
         </span>
-        <span className="num hide-sm">
+        <span className="num" data-label="Бонусы">
           {p.has_bonus ? fmtMoney(p.bonus) : <span className="dim">—</span>}
         </span>
-        <span className={profitCls}>
+        <span className={profitCls} data-label="Прибыль">
           {p.profit === null ? <span className="need-cost">нужна себест.</span> : fmtMoney(p.profit)}
         </span>
-        <span className="num dim hide-sm">{fmtPct(p.margin)}</span>
+        <span className="num dim" data-label="Маржа">{fmtPct(p.margin)}</span>
       </div>
       {open && <Detail p={p} onSaved={onSaved} />}
     </>
@@ -151,7 +147,7 @@ function Line({ k, label, v, rev, hint }:
       <dt><span className={`dot seg-${k}`} aria-hidden="true" />{label}
         {hint && <small> · {hint}</small>}</dt>
       <dd>
-        {v === null ? "—" : `−${fmtMoney(v)} ₸`}
+        {v === null ? "—" : v === 0 ? "0 ₸" : `−${fmtMoney(v)} ₸`}
         {v !== null && rev > 0 && <small> {fmtPct(v / rev)}</small>}
       </dd>
     </div>

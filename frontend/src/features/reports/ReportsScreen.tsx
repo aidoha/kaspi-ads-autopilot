@@ -46,6 +46,7 @@ export default function ReportsScreen({ onBack, onLogout }: Props) {
         <button type="button" className="linkish" onClick={onBack}>← Товары</button>
         <div className="brand">Деньги по товарам</div>
         {cur && cur.periods.length > 0 && (
+          <div className="topbar-filters">
           <select className="plain" aria-label="Период" value={period || `${cur.start}|${cur.end}`}
                   onChange={(e) => setPeriod(e.target.value)}>
             {!cur.periods.some((p) => p.start === cur.start && p.end === cur.end) && (
@@ -57,6 +58,7 @@ export default function ReportsScreen({ onBack, onLogout }: Props) {
               </option>
             ))}
           </select>
+          </div>
         )}
         <button type="button" className="linkish" onClick={onLogout}>Выйти</button>
       </div>
@@ -151,6 +153,18 @@ export default function ReportsScreen({ onBack, onLogout }: Props) {
           <span className="count">
             {needCost > 0 ? `у ${needCost} нет себестоимости — раскройте строку и впишите` : "по всем товарам есть себестоимость"}
           </span>
+          <label className="sort-sm">Сортировка
+            <select className="plain" value={sort.key}
+                    onChange={(e) => setSort({ key: e.target.value as SortKey, desc: e.target.value !== "name" })}>
+              <option value="revenue">выручка</option>
+              <option value="profit">прибыль</option>
+              <option value="margin">маржа</option>
+              <option value="orders">заказы</option>
+              <option value="ad_cost">реклама</option>
+              <option value="bonus">бонусы</option>
+              <option value="name">название</option>
+            </select>
+          </label>
           <DefaultCommission value={d.default_commission_pct} onSaved={() => load(true)} />
         </div>
 
